@@ -3,7 +3,7 @@ def generate_RandomCatalogue(ra,dec,nmult,seed,mask=True):
     from astropy.coordinates import SkyCoord
     import astropy.units as u
 
-    np.random.seed(seed)
+    #np.random.seed(seed)
 
     ra_min = np.min(ra)
     ra_max = np.max(ra)
