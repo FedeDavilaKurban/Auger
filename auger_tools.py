@@ -1,9 +1,9 @@
-def generate_RandomCatalogue(ra,dec,nmult,seed,mask=True):
+def generate_RandomCatalogue(ra,dec,nmult,seed=None,mask=True):
     import numpy as np
     from astropy.coordinates import SkyCoord
     import astropy.units as u
 
-    #np.random.seed(seed)
+    if seed!=None: np.random.seed(seed)
 
     ra_min = np.min(ra)
     ra_max = np.max(ra)
