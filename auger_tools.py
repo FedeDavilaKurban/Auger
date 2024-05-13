@@ -23,3 +23,29 @@ def generate_RandomCatalogue(ra,dec,nmult,seed=None,mask=True):
         rand_dec = rand_dec[mask_ran]
 
     return rand_ra, rand_dec
+
+
+def get_xibs(data,nbootstrap,nbins,rcat,ecat,config):
+    import numpy as np
+    import treecorr
+
+    xi_bs = np.zeros((nbootstrap,nbins))
+    varxi_bs = np.zeros((nbootstrap,nbins))
+
+    dd = treecorr.NNCorrelation(config)
+    dr = treecorr.NNCorrelation(config)
+    rr = treecorr.NNCorrelation(config)
+    rd = treecorr.NNCorrelation(config)
+
+    for n in range(nbootstrap):
+        databs = np.random.choice(data,size=len(data))
+        gcat = treecorr.Catalog(ra=databs['_RAJ2000'], dec=databs['_DEJ2000'],\
+                                ra_units='deg', dec_units='deg')
+
+        rr.process(rcat)
+        dd.process(gcat,ecat)
+        dr.process(gcat,rcat)
+        rd.process(ecat,rcat)
+
+        xi_bs[n], varxi_bs[n] = dd.calculateXi(rr=rr,dr=dr,rd=rd)
+    return xi_bs, varxi_bs, dd.meanr
