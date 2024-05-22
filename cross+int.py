@@ -67,7 +67,7 @@ for q in range(nquant):
   )
 
 if corrplot==True:
-    corrplotname = f'../data/cross_treecorr_nq{nquant}_nmult{nmult}_nbs{nbootstrap}'
+    corrplotname = f'../plots/cross_treecorr_nq{nquant}_nmult{nmult}_nbs{nbootstrap}'
     corrplotname += f'_{sample}'
     corrplotname += '.png'
     print('Save correlation plots to:',corrplotname)
@@ -141,7 +141,7 @@ if corrplot==True:
     handles.append(plt.fill_between([],[],color='k',alpha=fillalpha))
     labels_ = [labels[i] for i in range(nquant)]
     labels_.append('Integration range')
-    plt.legend(handles, labels_, loc=1, fancybox=True, framealpha=0.5, ncol=2)
+    plt.legend(handles, labels_, loc=1, fancybox=True, framealpha=0.5, ncol=1)
 
 
     ax.set_xlabel(r'$\theta$ (degrees)')
@@ -170,7 +170,8 @@ for q in range(nquant):
 
 for q in range(nquant):
     for i in range(nbootstrap):
-        int[q][i] = integrate.trapezoid(xi_bs[q][i][:-cutoff],x=th[:-cutoff])
+        int[q][i] = integrate.trapezoid(th[:-cutoff] * xi_bs[q][i][:-cutoff],x=th[:-cutoff])
+    
 
 ratio_mean = np.zeros(nquant)
 std_mean = np.zeros(nquant)
