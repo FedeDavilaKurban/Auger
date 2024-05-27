@@ -29,7 +29,7 @@ sample = config.get('Parameters','sample')
 write = config.getboolean('Parameters','write')
 corrplot = config.getboolean('Parameters','corrplot')
 ratioplot = config.getboolean('Parameters','ratioplot')
-tc_config = {"min_sep": minsep, \
+treecorr_config = {"min_sep": minsep, \
           "max_sep": maxsep, \
             "nbins": nbins, \
             "sep_units": 'degree', \
@@ -98,7 +98,7 @@ for q in range(nquant):
 xi_bs = []
 varxi_bs = []
 for q in range(nquant):
-    results =  get_xibs(data[q],nbootstrap,nbins,rcat[q],ecat,tc_config) 
+    results =  get_xibs(data[q],nbootstrap,nbins,rcat[q],ecat,treecorr_config) 
     xi_bs.append(results[0])
     varxi_bs.append(results[1])
     print(q+1,'/',nquant)
