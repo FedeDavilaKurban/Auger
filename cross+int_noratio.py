@@ -237,7 +237,7 @@ if ratioplot==True:
 
 if write==True:
 
-    names = ['int_ratio','L_ratio','int_std']
+    names = ['int_mean','meanMag','int_std']
 
     print('Writing results in:', filename)
     ascii.write(np.column_stack([int_mean,meanMag,int_std]),filename,names=names,overwrite=True)
