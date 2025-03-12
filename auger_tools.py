@@ -10,9 +10,9 @@ def generate_RandomCatalogue(ra,dec,nmult,seed=None,mask=True):
     dec_min = np.min(dec)
     dec_max = np.max(dec)
 
-    rand_ra = np.random.uniform(ra_min, ra_max, len(ra)*nmult)
+    rand_ra = np.random.uniform(ra_min, ra_max, len(ra)*nmult*100)
     rand_sindec = np.random.uniform(np.sin(dec_min*np.pi/180.), np.sin(dec_max*np.pi/180.), \
-                                    len(ra)*nmult)
+                                    len(ra)*nmult*100)
     rand_dec = np.arcsin(rand_sindec)*180./np.pi
 
     #Eliminates points within 5° in galactic latitude
@@ -22,7 +22,7 @@ def generate_RandomCatalogue(ra,dec,nmult,seed=None,mask=True):
         rand_ra = rand_ra[mask_ran]
         rand_dec = rand_dec[mask_ran]
 
-    return rand_ra, rand_dec
+    return rand_ra[:len(ra)*nmult], rand_dec[:len(ra)*nmult]
 
 
 def get_xibs(data,nbootstrap,nbins,rcat,ecat,config):

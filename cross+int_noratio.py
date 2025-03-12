@@ -58,6 +58,7 @@ gxs = ascii.read(filename_g)
 # Cut in velocity
 gxs = gxs[gxs['cz']>1000.]
 
+#gxs = gxs[gxs['class']==2]
 
 # Bright/Faint
 quantiles = np.quantile(gxs['K_abs'],np.linspace(0,1,nquant+1))
