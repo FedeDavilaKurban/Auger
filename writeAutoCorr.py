@@ -73,6 +73,7 @@ def main():
 
     # Read class for control sample
     if params['sample']=='control':
+        data = data[data['cz'] > 1000.]
         if params['gclass'] != 0:
             if params['gclass']==2: data = data[data['class'] == 2]
             elif params['gclass']==3: data = data[data['class'] == 3]
