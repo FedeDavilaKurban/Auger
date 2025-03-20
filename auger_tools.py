@@ -10,9 +10,9 @@ def generate_RandomCatalogue(ra,dec,nmult,seed=None,mask=True):
     dec_min = np.min(dec)
     dec_max = np.max(dec)
 
-    rand_ra = np.random.uniform(ra_min, ra_max, len(ra)*nmult*1000)
+    rand_ra = np.random.uniform(ra_min, ra_max, len(ra)*nmult*100)
     rand_sindec = np.random.uniform(np.sin(dec_min*np.pi/180.), np.sin(dec_max*np.pi/180.), \
-                                    len(ra)*nmult*1000)
+                                    len(ra)*nmult*100)
     rand_dec = np.arcsin(rand_sindec)*180./np.pi
 
     #Eliminates points within 5° in galactic latitude
@@ -49,3 +49,32 @@ def get_xibs(data,nbootstrap,nbins,rcat,ecat,config):
 
         xi_bs[n], varxi_bs[n] = dd.calculateXi(rr=rr,dr=dr,rd=rd)
     return xi_bs, varxi_bs, dd.meanr
+
+def get_xibs_auto(data,RAcol,DECcol,nbootstrap,nbins,rcat,config):
+    import numpy as np
+    import treecorr
+
+    xi_bs = np.zeros((nbootstrap,nbins))
+    varxi_bs = np.zeros((nbootstrap,nbins))
+    theta_ = np.zeros((nbootstrap,nbins))
+
+    dd = treecorr.NNCorrelation(config)
+    dr = treecorr.NNCorrelation(config)
+    rr = treecorr.NNCorrelation(config)
+
+    for n in range(nbootstrap):
+        databs = np.random.choice(data,size=len(data))
+        gcat = treecorr.Catalog(ra=databs[RAcol], dec=databs[DECcol],\
+                                ra_units='deg', dec_units='deg')
+
+        rr.process(rcat)
+        dd.process(gcat)
+        dr.process(gcat,rcat)
+
+        xi_bs[n], varxi_bs[n] = dd.calculateXi(rr=rr,dr=dr)
+        theta_[n] = dd.meanr
+
+    xi_mean = xi_bs.mean(axis=0)
+    varxi = varxi_bs.mean(axis=0)
+    theta = theta_.mean(axis=0)
+    return xi_mean, varxi, theta
