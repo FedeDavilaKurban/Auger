@@ -50,6 +50,7 @@ events_a8 = events_a8[mask_eve]
 if sample=='passivecrop': filename_g = '../data/VLS/2MRSxWISE_VLS_passivecrop.txt'
 elif sample=='sinAGNWISE': filename_g = '../data/2MRSxWISE_VLS_d1d5_sinAGNWISE.txt'
 elif sample=='sinAGNWISEniBPT': filename_g = '../data/2MRSxWISE_VLS_d1d5_sinAGNWISEniBPT.txt'
+elif sample == '700control': filename_g = '../data/VLS_ang5_cz_700control.txt'
 else: filename_g = '../data/VLS/2MRSxWISE_VLS.txt'
 print('Sample file:',filename_g)
 gxs = ascii.read(filename_g)
@@ -153,8 +154,6 @@ if corrplot==True:
 
     plt.savefig(corrplotname)
 
-    #plt.show()
-    #plt.close()
 
 """
 INTEGRATION
@@ -209,9 +208,6 @@ if ratioplot==True:
     ax.set_xlabel(r'$L_N/L_1$')
 
     plt.savefig('../plots/'+ratioplotname)
-
-    #plt.show()
-    #plt.close()
 
 
 if write==True:

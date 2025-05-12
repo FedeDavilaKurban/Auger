@@ -40,6 +40,8 @@ def load_data(sample):
         filename_g = '../data/2MRSxWISE_VLS_d1d5_sinAGNWISEniBPT.txt'
     elif sample == 'control':
         filename_g = '../data/2MRSxWISE_VLS_d1d5_sinAGNWISEniBPT_control_SF_passive_cz_Kabs_ang5_cz1000.txt'
+    elif sample == '700control':
+        filename_g = '../data/VLS_ang5_cz_700control.txt'
     else:
         filename_g = '../data/VLS/2MRSxWISE_VLS.txt'
     print(f'Sample file: {filename_g}')

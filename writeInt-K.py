@@ -40,6 +40,10 @@ def load_data(sample):
         filename_g = '../data/2MRSxWISE_VLS_d1d5_sinAGNWISEniBPT.txt'
     elif sample == 'control':
         filename_g = '../data/2MRSxWISE_VLS_d1d5_sinAGNWISEniBPT_control_SF_passive_cz_Kabs_ang5_cz1000.txt'
+    elif sample == '700control':
+        filename_g = '../data/VLS_ang5_cz_700control.txt'
+    elif sample == 'nocontrol':
+        filename_g = '../data/2MRSxWISE_VLS_d1d5_sinAGNWISEniBPT_cz1000.txt'
     else:
         filename_g = '../data/VLS/2MRSxWISE_VLS.txt'
     print(f'Sample file: {filename_g}')
@@ -67,8 +71,6 @@ def main():
     # Read galaxy data
     gxs = load_data(params['sample'])
     gxs = gxs[gxs['cz'] > 1000.]
-
-
 
     # Read class for control sample
     if params['sample']=='control':
@@ -114,6 +116,7 @@ def main():
         varxi_bs.append(results[1])
         print(f'{q + 1}/{params["nquant"]}')
     th = results[2]
+    print(xi_bs)
 
     if params['corrplot']:
         print('Plotting correlations')
@@ -126,10 +129,14 @@ def main():
         alpha, capsize = .2, 2
         labels = [f'{quantiles[q]:.1f}<K_abs<{quantiles[q + 1]:.1f}' for q in range(params['nquant'])]
         colors = ['C00', 'C01', 'C02', 'C03', 'C04', 'C05']
+
         for q in range(params['nquant']):
-            for i in range(params['nbootstrap']):
-                ax.errorbar(th, xi_bs[q][i], yerr=np.sqrt(varxi_bs[q][i]), color=colors[q], label=labels[q],
-                           alpha=alpha, capsize=capsize)
+            xi_bs_mean = np.mean(np.reshape(xi_bs[q],(params['nbootstrap'],len(th))),axis=0)
+            xi_bs_var = np.mean(np.reshape(varxi_bs[q],(params['nbootstrap'],len(th))),axis=0)  
+            #for i in range(params['nbootstrap']): 
+            ax.fill_between(th, y1=xi_bs_mean+np.sqrt(xi_bs_var), y2=xi_bs_mean-np.sqrt(xi_bs_var), color=colors[q],
+                           alpha=alpha)
+            ax.plot(th, xi_bs_mean, c=colors[q], label=labels[q])
 
         handles = [plt.errorbar([], [], yerr=1, color=colors[i]) for i in range(params['nquant'])]
         handles.append(plt.fill_between([], [], color='k', alpha=fillalpha))
