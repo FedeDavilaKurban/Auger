@@ -170,7 +170,7 @@ def main():
             int_results[q][i] = integrate.trapezoid(th[:-params['cutoff']] * xi_bs[q][i][:-params['cutoff']], x=th[:-params['cutoff']])
 
     int_mean = np.array([np.mean(int_results[q]) for q in range(params['nquant'])])
-    int_std = np.array([np.std(int_results[q]) for q in range(params['nquant'])])
+    int_std = np.array([np.std(int_results[q],ddof=1) for q in range(params['nquant'])])
     #ratio_mean = int_mean / int_mean[0]
     #std_mean = int_std / int_mean[0]
 
