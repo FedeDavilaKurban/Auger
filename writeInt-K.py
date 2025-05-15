@@ -26,7 +26,8 @@ def read_config(config_file):
         'write': config.getboolean('Parameters', 'write'),
         'corrplot': config.getboolean('Parameters', 'corrplot'),
         #'ratioplot': config.getboolean('Parameters', 'ratioplot'),
-        'gclass': config.getint('Parameters', 'gclass')
+        'gclass': config.getint('Parameters', 'gclass'),
+        'bptagn': config.getint('Parameters', 'bptagn')
     }
     return params
 
@@ -44,6 +45,8 @@ def load_data(sample):
         filename_g = '../data/VLS_ang5_cz_700control.txt'
     elif sample == 'nocontrol':
         filename_g = '../data/2MRSxWISE_VLS_d1d5_sinAGNWISEniBPT_cz1000.txt'
+    elif sample == 'agn':
+        filename_g = '../data/VLS_WISEorBPT_AGNs.txt'
     else:
         filename_g = '../data/VLS/2MRSxWISE_VLS.txt'
     print(f'Sample file: {filename_g}')
@@ -73,14 +76,23 @@ def main():
     gxs = gxs[gxs['cz'] > 1000.]
 
     # Read class for control sample
-    if params['sample']=='control':
-        if params['gclass'] != 0:
-            if params['gclass']==2: gxs = gxs[gxs['class'] == 2]
-            elif params['gclass']==3: gxs = gxs[gxs['class'] == 3]
+    # if params['sample']=='control':
+    if params['gclass'] == 2:
+        gxs = gxs[gxs['class'] == 2]
+    elif params['gclass'] == 3:
+        gxs = gxs[gxs['class'] == 3]
+
+    if params['sample'] == 'agn':
+        if params['bptagn'] == 0: gxs = gxs[gxs['BPTAGN'] == 1]
+        elif params['bptagn'] == 1: gxs = gxs[gxs['BPTAGN'] == 1]
+
+
 
     # Define quantiles
     quantiles = np.quantile(gxs['K_abs'], np.linspace(0, 1, params['nquant'] + 1))
-    print(quantiles)
+
+    # Define bins
+    quantiles = np.array([-26,-24.3,-23.5,-22.8,-22.])
     
     # Split sample into quantiles
     data = [gxs[(gxs['K_abs'] > quantiles[q]) & (gxs['K_abs'] < quantiles[q + 1])] for q in range(params['nquant'])]
@@ -88,17 +100,19 @@ def main():
         
     if params['corrplot']:
         corrplotname = f'../plots/cross_treecorr_nq{params["nquant"]}_nmult{params["nmult"]}_nbs{params["nbootstrap"]}_{params["sample"]}'
-        if params['gclass'] != 0:
-            corrplotname+=f'class{params['gclass']}'
+        if params['gclass'] == 2: corrplotname+=f'class{params['gclass']}'
+        elif params['gclass'] == 3: corrplotname+=f'class{params['gclass']}'
         corrplotname += '.png'
         print(f'Save correlation plots to: {corrplotname}')
+
 #    if params['ratioplot']:
 #        ratioplotname = f'int_L_nquant{params["nquant"]}_nbs{params["nbootstrap"]}_{params["sample"]}_noRatio.png'
 #        print(f'Save ratio plot to: {ratioplotname}')
+
     if params['write']:
         filename = f'../data/int_K_nq{params["nquant"]}_nbs{params["nbootstrap"]}_{params["sample"]}'
-        if params['gclass'] != 0:
-            filename+=f'class{params['gclass']}'
+        if params['gclass'] == 2: filename+=f'class{params['gclass']}'
+        elif params['gclass'] == 3: filename+=f'class{params['gclass']}'
         filename += '.npz'
         print(f'Save results to: {filename}')
 
@@ -116,7 +130,7 @@ def main():
         varxi_bs.append(results[1])
         print(f'{q + 1}/{params["nquant"]}')
     th = results[2]
-    print(xi_bs)
+    #print(xi_bs)
 
     if params['corrplot']:
         print('Plotting correlations')
