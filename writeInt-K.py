@@ -190,7 +190,8 @@ def main():
     #     plt.savefig(f'../plots/{ratioplotname}')
 
     if params['write']:
-        mean_mag = np.array([np.mean(data[q]['K_abs']) for q in range(params['nquant'])])
+        #mean_mag = np.array([np.mean(data[q]['K_abs']) for q in range(params['nquant'])])
+        mean_mag = np.array([(quantiles[i]+quantiles[i+1])/2. for i in range(len(quantiles)-1)])
         print(f'Writing results in: {filename}')
         ascii.write(np.column_stack([int_mean, mean_mag, int_std]), filename,
                     names=['int_mean', 'meanMag', 'int_std'], overwrite=True)
