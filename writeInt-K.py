@@ -45,6 +45,8 @@ def load_data(sample):
         filename_g = '../data/VLS_ang5_cz_700control.txt'
     elif sample == 'nocontrol':
         filename_g = '../data/2MRSxWISE_VLS_d1d5_sinAGNWISEniBPT_cz1000.txt'
+    elif sample == '700control-w1.5-3.3':
+        filename_g = '../data/VLS_1.5-3.3_control.txt'
     elif sample == 'agn':
         filename_g = '../data/VLS_WISEorBPT_AGNs.txt'
     else:
