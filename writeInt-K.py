@@ -94,7 +94,7 @@ def main():
     quantiles = np.quantile(gxs['K_abs'], np.linspace(0, 1, params['nquant'] + 1))
 
     # Define bins
-    quantiles = np.array([-26,-24.3,-23.5,-22.8,-22.])
+    #quantiles = np.array([-26,-24.3,-23.5,-22.8,-22.])
     
     # Split sample into quantiles
     data = [gxs[(gxs['K_abs'] > quantiles[q]) & (gxs['K_abs'] < quantiles[q + 1])] for q in range(params['nquant'])]
@@ -127,10 +127,10 @@ def main():
 
     xi_bs, varxi_bs = [], []
     for q in range(params['nquant']):
+        print(f'{q + 1}/{params["nquant"]}')
         results = get_xibs(data[q], params['nbootstrap'], params['nbins'], rcat[q], ecat, treecorr_config)
         xi_bs.append(results[0])
         varxi_bs.append(results[1])
-        print(f'{q + 1}/{params["nquant"]}')
     th = results[2]
     #print(xi_bs)
 
@@ -192,8 +192,8 @@ def main():
     #     plt.savefig(f'../plots/{ratioplotname}')
 
     if params['write']:
-        #mean_mag = np.array([np.mean(data[q]['K_abs']) for q in range(params['nquant'])])
-        mean_mag = np.array([(quantiles[i]+quantiles[i+1])/2. for i in range(len(quantiles)-1)])
+        mean_mag = np.array([np.mean(data[q]['K_abs']) for q in range(params['nquant'])])
+        #mean_mag = np.array([(quantiles[i]+quantiles[i+1])/2. for i in range(len(quantiles)-1)])
         print(f'Writing results in: {filename}')
         ascii.write(np.column_stack([int_mean, mean_mag, int_std]), filename,
                     names=['int_mean', 'meanMag', 'int_std'], overwrite=True)
