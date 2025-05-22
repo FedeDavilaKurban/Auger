@@ -21,36 +21,27 @@ def read_config(config_file):
         'nbootstrap': config.getint('Parameters', 'nbootstrap'),
         'brute': config.getboolean('Parameters', 'brute'),
         'nquant': config.getint('Parameters', 'nquant'),
-        'cutoff': config.getint('Parameters', 'cutoff'),
         'sample': config.get('Parameters', 'sample'),
         'write': config.getboolean('Parameters', 'write'),
         'corrplot': config.getboolean('Parameters', 'corrplot'),
-        #'ratioplot': config.getboolean('Parameters', 'ratioplot'),
         'gclass': config.getint('Parameters', 'gclass'),
-        'bptagn': config.getint('Parameters', 'bptagn')
+        'bptagn': config.getint('Parameters', 'bptagn'),
+        'bin_K': config.get('Parameters', 'bin_K'),
+        'def_thresh': config.getfloat('Parameters', 'def_thresh'),
+        'def': config.get('Parameters', 'def')
     }
     return params
 
 def load_data(sample):
     """Load data based on the sample type."""
-    if sample == 'passivecrop':
-        filename_g = '../data/VLS/2MRSxWISE_VLS_passivecrop.txt'
-    elif sample == 'sinAGNWISE':
-        filename_g = '../data/2MRSxWISE_VLS_d1d5_sinAGNWISE.txt'
-    elif sample == 'sinAGNWISEniBPT':
-        filename_g = '../data/2MRSxWISE_VLS_d1d5_sinAGNWISEniBPT.txt'
-    elif sample == 'control':
-        filename_g = '../data/2MRSxWISE_VLS_d1d5_sinAGNWISEniBPT_control_SF_passive_cz_Kabs_ang5_cz1000.txt'
-    elif sample == '700control':
-        filename_g = '../data/VLS_ang5_cz_700control.txt'
+    if sample == '700control':
+        filename_g = '../data/VLS_ang5_cz_700control_def.txt'
     elif sample == 'nocontrol':
         filename_g = '../data/2MRSxWISE_VLS_d1d5_sinAGNWISEniBPT_cz1000.txt'
-    elif sample == '700control-w1.5-3.3':
-        filename_g = '../data/VLS_1.5-3.3_control.txt'
     elif sample == 'agn':
-        filename_g = '../data/VLS_WISEorBPT_AGNs.txt'
+        filename_g = '../data/VLS_WISEorBPT_AGNs_def.txt'
     else:
-        filename_g = '../data/VLS/2MRSxWISE_VLS.txt'
+        raise ValueError(f"Unknown sample type: {sample}")
     print(f'Sample file: {filename_g}')
     return ascii.read(filename_g)
 
@@ -77,8 +68,7 @@ def main():
     gxs = load_data(params['sample'])
     gxs = gxs[gxs['cz'] > 1000.]
 
-    # Read class for control sample
-    # if params['sample']=='control':
+    # Read class 
     if params['gclass'] == 2:
         gxs = gxs[gxs['class'] == 2]
     elif params['gclass'] == 3:
@@ -88,36 +78,52 @@ def main():
         if params['bptagn'] == 0: gxs = gxs[gxs['BPTAGN'] == 1]
         elif params['bptagn'] == 1: gxs = gxs[gxs['BPTAGN'] == 1]
 
-
+    # Read def
+    if params['def'] == 'low':
+        gxs = gxs[gxs['deflection'] <= params['def_thresh']]
+    elif params['def'] == 'high':   
+        gxs = gxs[gxs['deflection'] > params['def_thresh']]
 
     # Define quantiles
-    quantiles = np.quantile(gxs['K_abs'], np.linspace(0, 1, params['nquant'] + 1))
-
+    if params['bin_K']=='quantiles':
+        quantiles = np.quantile(gxs['K_abs'], np.linspace(0, 1, params['nquant'] + 1))
     # Define bins
-    #quantiles = np.array([-26,-24.3,-23.5,-22.8,-22.])
-    
+    elif params['bin_K'] == 'adhoc':
+        if params['nquant']==4: quantiles = np.array([-26,-24,-23.2,-22.5,-22.])
+        elif params['nquant']==3: quantiles = np.array([-26,-23.2,-22.8,-22.])
+    else:
+        raise ValueError(f"Unknown binning method: {params['bin_K']}")
+
     # Split sample into quantiles
     data = [gxs[(gxs['K_abs'] > quantiles[q]) & (gxs['K_abs'] < quantiles[q + 1])] for q in range(params['nquant'])]
 
-        
+    # Determine filename for Correlations plot
     if params['corrplot']:
         corrplotname = f'../plots/cross_treecorr_nq{params["nquant"]}_nmult{params["nmult"]}_nbs{params["nbootstrap"]}_{params["sample"]}'
+        # Add class
         if params['gclass'] == 2: corrplotname+=f'class{params['gclass']}'
         elif params['gclass'] == 3: corrplotname+=f'class{params['gclass']}'
+        # Add deflection
+        if params['def'] == 'low': corrplotname+=f'_def{params['def']}{int(params['def_thresh'])}'
+        elif params['def'] == 'high': corrplotname+=f'_def{params['def']}{int(params['def_thresh'])}'
+        # Add format
         corrplotname += '.png'
         print(f'Save correlation plots to: {corrplotname}')
 
-#    if params['ratioplot']:
-#        ratioplotname = f'int_L_nquant{params["nquant"]}_nbs{params["nbootstrap"]}_{params["sample"]}_noRatio.png'
-#        print(f'Save ratio plot to: {ratioplotname}')
-
+    # Determine filename for writing results
     if params['write']:
-        filename = f'../data/int_K_nq{params["nquant"]}_nbs{params["nbootstrap"]}_{params["sample"]}'
+        filename = f'../data/int{str(int(params["maxsep"]))}_K_nq{params["nquant"]}_nbs{params["nbootstrap"]}_{params["sample"]}'
+        # Add class
         if params['gclass'] == 2: filename+=f'class{params['gclass']}'
         elif params['gclass'] == 3: filename+=f'class{params['gclass']}'
+        # Add deflection
+        if params['def'] == 'low': filename+=f'_def{params['def']}{int(params['def_thresh'])}'
+        elif params['def'] == 'high': filename+=f'_def{params['def']}{int(params['def_thresh'])}'
+        # Add format
         filename += '.npz'
         print(f'Save results to: {filename}')
 
+    # Calculations
     print('Calculating crosscorrelations')
     ecat = treecorr.Catalog(ra=events_a8['RA'], dec=events_a8['dec'], ra_units='deg', dec_units='deg')
     #seeds = np.linspace(1000,1+params['nquant']-1,params['nquant'],dtype=int)
@@ -132,15 +138,15 @@ def main():
         xi_bs.append(results[0])
         varxi_bs.append(results[1])
     th = results[2]
-    #print(xi_bs)
 
+    # Correlation plot
     if params['corrplot']:
         print('Plotting correlations')
         fig, ax = plt.subplots()
-        ax.hlines(0., 0., 90., ls=':', color='k', alpha=.7)
-        fillalpha = .2
-        xi1_max = [np.max(xi_bs[0][:, i]) for i in range(params['nbins'])][:-params['cutoff']]
-        ax.fill_between(th[:-params['cutoff']], y1=np.max(xi1_max), color='k', alpha=fillalpha)
+        #ax.hlines(0., 0., 90., ls=':', color='k', alpha=.7)
+        #fillalpha = .2
+        #xi1_max = [np.max(xi_bs[0][:, i]) for i in range(params['nbins'])]#[:-params['cutoff']]
+        #ax.fill_between(th[:-params['cutoff']], y1=np.max(xi1_max), color='k', alpha=fillalpha)
 
         alpha, capsize = .2, 2
         labels = [f'{quantiles[q]:.1f}<K_abs<{quantiles[q + 1]:.1f}' for q in range(params['nquant'])]
@@ -154,10 +160,10 @@ def main():
                            alpha=alpha)
             ax.plot(th, xi_bs_mean, c=colors[q], label=labels[q])
 
-        handles = [plt.errorbar([], [], yerr=1, color=colors[i]) for i in range(params['nquant'])]
-        handles.append(plt.fill_between([], [], color='k', alpha=fillalpha))
-        labels_ = labels + ['Integration range']
-        ax.legend(handles, labels_, loc=1, fancybox=True, framealpha=0.5, ncol=1)
+        #handles = [plt.errorbar([], [], yerr=1, color=colors[i]) for i in range(params['nquant'])]
+        #handles.append(plt.fill_between([], [], color='k', alpha=fillalpha))
+        #labels_ = labels + ['Integration range']
+        #ax.legend(handles, labels_, loc=1, fancybox=True, framealpha=0.5, ncol=1)
 
         ax.set_xlabel(r'$\theta$ (degrees)')
         ax.set_ylabel(r'$\omega(\theta)$')
@@ -165,35 +171,20 @@ def main():
         ax.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
         plt.savefig(corrplotname)
 
+    # Integration
     print('Integration')
     int_results = [np.zeros(params['nbootstrap']) for _ in range(params['nquant'])]
     for q in range(params['nquant']):
         for i in range(params['nbootstrap']):
-            int_results[q][i] = integrate.trapezoid(th[:-params['cutoff']] * xi_bs[q][i][:-params['cutoff']], x=th[:-params['cutoff']])
+            int_results[q][i] = integrate.trapezoid(th * xi_bs[q][i], x=th)
 
     int_mean = np.array([np.mean(int_results[q]) for q in range(params['nquant'])])
     int_std = np.array([np.std(int_results[q],ddof=1) for q in range(params['nquant'])])
-    #ratio_mean = int_mean / int_mean[0]
-    #std_mean = int_std / int_mean[0]
 
-    # if params['ratioplot']:
-    #     print('Plotting ratios')
-    #     mean_mag = np.array([np.mean(data[q]['K_abs']) for q in range(params['nquant'])])
-    #     res = stats.linregress(-mean_mag, int_mean)
-    #     print(f"R-squared: {res.rvalue**2:.3f}")
-
-    #     fig, ax = plt.subplots()
-    #     ax.plot(-mean_mag, res.intercept - res.slope * mean_mag, 'r:',
-    #             label=f'Linear regression; $R^2={res.rvalue**2:.2f}$')
-    #     ax.errorbar(-mean_mag, int_mean, yerr=int_std, c='C00', fmt='o')
-    #     ax.set_ylabel(r'$<\int\omega_Nd\theta>$')
-    #     ax.set_xlabel(r'$-K_{\mathrm{abs}}$')
-    #     ax.legend(loc=4)
-    #     plt.savefig(f'../plots/{ratioplotname}')
-
+    # Write results
     if params['write']:
-        mean_mag = np.array([np.mean(data[q]['K_abs']) for q in range(params['nquant'])])
-        #mean_mag = np.array([(quantiles[i]+quantiles[i+1])/2. for i in range(len(quantiles)-1)])
+        #mean_mag = np.array([np.mean(data[q]['K_abs']) for q in range(params['nquant'])])
+        mean_mag = np.array([(quantiles[i]+quantiles[i+1])/2. for i in range(len(quantiles)-1)])
         print(f'Writing results in: {filename}')
         ascii.write(np.column_stack([int_mean, mean_mag, int_std]), filename,
                     names=['int_mean', 'meanMag', 'int_std'], overwrite=True)
