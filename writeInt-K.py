@@ -28,7 +28,8 @@ def read_config(config_file):
         'bptagn': config.getint('Parameters', 'bptagn'),
         'bin_K': config.get('Parameters', 'bin_K'),
         'def_thresh': config.getfloat('Parameters', 'def_thresh'),
-        'def': config.get('Parameters', 'def')
+        'def': config.get('Parameters', 'def'),
+        'bin_type': config.get('Parameters', 'bin_type')
     }
     return params
 
@@ -53,7 +54,7 @@ def main():
         "max_sep": params['maxsep'],
         "nbins": params['nbins'],
         "sep_units": 'degree',
-        "bin_type": 'Linear',
+        "bin_type": params['bin_type'],
         "brute": params['brute'],
         "metric": 'Arc'
     }
@@ -127,8 +128,16 @@ def main():
     print('Calculating crosscorrelations')
     ecat = treecorr.Catalog(ra=events_a8['RA'], dec=events_a8['dec'], ra_units='deg', dec_units='deg')
     #seeds = np.linspace(1000,1+params['nquant']-1,params['nquant'],dtype=int)
-    rcat = [treecorr.Catalog(ra=generate_RandomCatalogue(data[q]['_RAJ2000'], data[q]['_DEJ2000'], params['nmult'], seed=None,mask=True)[0],
-            dec=generate_RandomCatalogue(data[q]['_RAJ2000'], data[q]['_DEJ2000'], params['nmult'], seed=None, mask=True)[1],
+    ra_random = []
+    dec_random = []
+    for q in range(params['nquant']):
+        #radec_random.append( np.zeros((2,params['nmult']*len(data[q]))) )
+        #radec_random[q] = generate_RandomCatalogue(data[q]['_RAJ2000'], data[q]['_DEJ2000'], params['nmult'], seed=None,mask=True)
+        randoms = generate_RandomCatalogue(data[q]['_RAJ2000'], data[q]['_DEJ2000'], params['nmult'], seed=None, mask=True)
+        ra_random.append(randoms[0])
+        dec_random.append(randoms[1])
+    #print(radec_random[0][0])
+    rcat = [treecorr.Catalog(ra=ra_random[q], dec=dec_random[q],
             ra_units='deg', dec_units='deg') for q in range(params['nquant'])]
 
     xi_bs, varxi_bs = [], []
@@ -143,10 +152,6 @@ def main():
     if params['corrplot']:
         print('Plotting correlations')
         fig, ax = plt.subplots()
-        #ax.hlines(0., 0., 90., ls=':', color='k', alpha=.7)
-        #fillalpha = .2
-        #xi1_max = [np.max(xi_bs[0][:, i]) for i in range(params['nbins'])]#[:-params['cutoff']]
-        #ax.fill_between(th[:-params['cutoff']], y1=np.max(xi1_max), color='k', alpha=fillalpha)
 
         alpha, capsize = .2, 2
         labels = [f'{quantiles[q]:.1f}<K_abs<{quantiles[q + 1]:.1f}' for q in range(params['nquant'])]
@@ -155,19 +160,15 @@ def main():
         for q in range(params['nquant']):
             xi_bs_mean = np.mean(np.reshape(xi_bs[q],(params['nbootstrap'],len(th))),axis=0)
             xi_bs_var = np.mean(np.reshape(varxi_bs[q],(params['nbootstrap'],len(th))),axis=0)  
-            #for i in range(params['nbootstrap']): 
             ax.fill_between(th, y1=xi_bs_mean+np.sqrt(xi_bs_var), y2=xi_bs_mean-np.sqrt(xi_bs_var), color=colors[q],
                            alpha=alpha)
             ax.plot(th, xi_bs_mean, c=colors[q], label=labels[q])
 
-        #handles = [plt.errorbar([], [], yerr=1, color=colors[i]) for i in range(params['nquant'])]
-        #handles.append(plt.fill_between([], [], color='k', alpha=fillalpha))
-        #labels_ = labels + ['Integration range']
-        #ax.legend(handles, labels_, loc=1, fancybox=True, framealpha=0.5, ncol=1)
-
         ax.set_xlabel(r'$\theta$ (degrees)')
         ax.set_ylabel(r'$\omega(\theta)$')
         ax.set_xlim([params['minsep'], params['maxsep']])
+        if params['bin_type']=='Log':
+            ax.set_xscale('log')
         ax.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
         plt.savefig(corrplotname)
 
