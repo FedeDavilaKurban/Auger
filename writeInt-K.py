@@ -29,7 +29,8 @@ def read_config(config_file):
         'bin_K': config.get('Parameters', 'bin_K'),
         'def_thresh': config.getfloat('Parameters', 'def_thresh'),
         'def': config.get('Parameters', 'def'),
-        'bin_type': config.get('Parameters', 'bin_type')
+        'bin_type': config.get('Parameters', 'bin_type'),
+        'skyplot': config.getboolean('Parameters', 'skyplot')
     }
     return params
 
@@ -111,6 +112,19 @@ def main():
         corrplotname += '.png'
         print(f'Save correlation plots to: {corrplotname}')
 
+    # Determine filename for sky plot
+    if params['skyplot']:
+        skyplotname = f'../plots/skyplot_nq{params["nquant"]}_nmult{params["nmult"]}_nbs{params["nbootstrap"]}_{params["sample"]}'
+        # Add class
+        if params['gclass'] == 2: plotname+=f'class{params['gclass']}'
+        elif params['gclass'] == 3: skyplotname+=f'class{params['gclass']}'
+        # Add deflection
+        if params['def'] == 'low': skyplotname+=f'_def{params['def']}{int(params['def_thresh'])}'
+        elif params['def'] == 'high': skyplotname+=f'_def{params['def']}{int(params['def_thresh'])}'
+        # Add format
+        skyplotname += '.png'
+        print(f'Save correlation plots to: {skyplotname}')
+
     # Determine filename for writing results
     if params['write']:
         filename = f'../data/int{str(int(params["maxsep"]))}_K_nq{params["nquant"]}_nbs{params["nbootstrap"]}_{params["sample"]}'
@@ -130,10 +144,23 @@ def main():
     #seeds = np.linspace(1000,1+params['nquant']-1,params['nquant'],dtype=int)
     ra_random = []
     dec_random = []
+    def deflec_regions(ra, dec, ra_min, ra_max):
+        ra_rad_orig = np.radians(ra - 360. * (ra > 180))
+        dec_rad_orig = np.radians(dec)
+        mask = (ra_rad_orig > np.radians(ra_min)) & (ra_rad_orig < np.radians(ra_max))
+        return {
+            'high': (ra_rad_orig[mask], dec_rad_orig[mask]),
+            'low': (ra_rad_orig[~mask], dec_rad_orig[~mask])
+        }
     for q in range(params['nquant']):
-        #radec_random.append( np.zeros((2,params['nmult']*len(data[q]))) )
-        #radec_random[q] = generate_RandomCatalogue(data[q]['_RAJ2000'], data[q]['_DEJ2000'], params['nmult'], seed=None,mask=True)
-        randoms = generate_RandomCatalogue(data[q]['_RAJ2000'], data[q]['_DEJ2000'], params['nmult'], seed=None, mask=True)
+        if params['def']=='high':
+            cut_data = deflec_regions(data[q]['_RAJ2000'],data[q]['_DEJ2000'],-160,90)['high']
+            randoms = generate_RandomCatalogue(data[q][0], data[q][1], params['nmult'], seed=None, mask=True)
+        if params['def']=='low':
+            data[q] = deflec_regions(data[q]['_RAJ2000'],data[q]['_DEJ2000'],-160,90)['low']
+            randoms = generate_RandomCatalogue(data[q][0], data[q][1], params['nmult'], seed=None, mask=True)
+        else:
+            randoms = generate_RandomCatalogue(data[q]['_RAJ2000'], data[q]['_DEJ2000'], params['nmult'], seed=None, mask=True)
         ra_random.append(randoms[0])
         dec_random.append(randoms[1])
     #print(radec_random[0][0])
@@ -143,6 +170,8 @@ def main():
     xi_bs, varxi_bs = [], []
     for q in range(params['nquant']):
         print(f'{q + 1}/{params["nquant"]}')
+        print(data[q])
+
         results = get_xibs(data[q], params['nbootstrap'], params['nbins'], rcat[q], ecat, treecorr_config)
         xi_bs.append(results[0])
         varxi_bs.append(results[1])
@@ -171,6 +200,46 @@ def main():
             ax.set_xscale('log')
         ax.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
         plt.savefig(corrplotname)
+
+    # Sky Plot
+    if params['skyplot']:
+
+        def format_axes(ax):
+            """Format axes with RA in hours and Dec in degrees."""
+            xticks_deg = np.arange(-120, 180, 60)
+            xticks_rad = np.radians(xticks_deg)
+            ax.set_xticks(xticks_rad)
+            ax.set_xticklabels([f'{int(deg)}°' for deg in xticks_deg])
+            yticks_deg = np.arange(-90, 91, 30)
+            yticks_rad = np.radians(yticks_deg)
+            ax.set_yticks(yticks_rad)
+            ax.set_yticklabels([f'{deg}°' for deg in yticks_deg])
+            ax.tick_params(axis='both', which='major', labelsize=12)
+            #ax.tick_params(axis='both', which='minor', labelsize=8)
+            ax.grid(True)
+        print('Plotting sky coordinates')
+        fig, axs = plt.subplots(nrows=int(params['nquant']/2), ncols=2, \
+                                figsize=(12, 8), subplot_kw={'projection': 'aitoff'})        
+
+        for q, ax in zip(range(params['nquant']),axs.ravel()):
+            gxs_sc = SkyCoord(data[q]['_RAJ2000'],data[q]['_DEJ2000'],frame='icrs',unit='degree')
+
+            eve_sc = SkyCoord(events_a8['RA'],events_a8['dec'],frame='icrs',unit='degree')
+            ran_sc = SkyCoord(ra_random[q], dec_random[q],frame='icrs',unit='degree')
+
+            #ax = fig.add_subplot(111, projection="aitoff")
+            ax.scatter(ran_sc.ra.wrap_at(180*u.degree).to(u.rad),ran_sc.dec.to(u.rad),s=3,c='k',label='random')
+            ax.scatter(eve_sc.ra.wrap_at(180*u.degree).to(u.rad),eve_sc.dec.to(u.rad),s=.1,label='events')
+            ax.scatter(gxs_sc.ra.wrap_at(180*u.degree).to(u.rad),gxs_sc.dec.to(u.rad),s=5,c='C03',label='galaxies hdef')
+
+            ax.legend(loc=1,fontsize=10)
+            ax.set_title(f'{quantiles[q]:.1f} < K_abs < {quantiles[q+1]:.1f}')
+            ax.grid(True)
+        
+
+        plt.tight_layout()
+        plt.savefig(skyplotname)
+
 
     # Integration
     print('Integration')
