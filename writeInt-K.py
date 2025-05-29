@@ -198,7 +198,7 @@ def main():
 
         def format_axes(ax):
             """Format axes with RA in hours and Dec in degrees."""
-            xticks_deg = [-120, -30, 0, 60, 120]
+            xticks_deg = [-120, -60, 0, 60, 120]
             xticks_rad = np.radians(xticks_deg)
             ax.set_xticks(xticks_rad)
             ax.set_xticklabels([f'{int(deg)}°' for deg in xticks_deg])
@@ -225,7 +225,7 @@ def main():
             ax.scatter(gxs_sc.ra.wrap_at(180*u.degree).to(u.rad),gxs_sc.dec.to(u.rad),s=5,c='C03',label='Galaxies')
 
             ax.legend(loc=1,fontsize=10)
-            ax.set_title(f'{quantiles[q]:.1f} '+r'< K_{abs} < '+f'{quantiles[q+1]:.1f}')
+            ax.set_title(f'{quantiles[q]:.1f} '+r'$< K_{abs} <$ '+f'{quantiles[q+1]:.1f}')
             ax.grid(True)
             format_axes(ax)
 

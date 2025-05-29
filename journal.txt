@@ -6,3 +6,4 @@ Ver I25 para deflectantes/no deflectantes
 Chequear randoms para deflectantes y no deflectantes
 
 Ver autocorr de RC con randoms con dependencia en la dec
+
