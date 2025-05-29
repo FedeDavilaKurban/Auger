@@ -126,7 +126,7 @@ def main():
     if params['skyplot']:
         skyplotname = f'../plots/skyplot_nq{params["nquant"]}_nmult{params["nmult"]}_nbs{params["nbootstrap"]}_{params["sample"]}'
         # Add class
-        if params['gclass'] == 2: plotname+=f'class{params['gclass']}'
+        if params['gclass'] == 2: skyplotname+=f'class{params['gclass']}'
         elif params['gclass'] == 3: skyplotname+=f'class{params['gclass']}'
         # Add deflection
         if params['def'] == 'low': skyplotname+=f'_def{params['def']}{int(params['def_thresh'])}'
@@ -155,19 +155,22 @@ def main():
     ra_random = []
     dec_random = []
     for q in range(params['nquant']):
-        randoms = generate_RandomCatalogue(data[q]['_RAJ2000'], data[q]['_DEJ2000'], params['nmult'], seed=None, mask=True, deflection=params['def'])
+        randoms = generate_RandomCatalogue(data[q]['_RAJ2000'], data[q]['_DEJ2000'], params['nmult'], \
+                                           seed=999, mask=True, deflection=params['def'])
         ra_random.append(randoms[0])
         dec_random.append(randoms[1])
     rcat = [treecorr.Catalog(ra=ra_random[q], dec=dec_random[q],
             ra_units='deg', dec_units='deg') for q in range(params['nquant'])]
 
     xi_bs, varxi_bs = [], []
+    xi_true = np.zeros((params['nquant'], params['nbins']))
     for q in range(params['nquant']):
         print(f'{q + 1}/{params["nquant"]}')
         results = get_xibs(data[q], params['nbootstrap'], params['nbins'], rcat[q], ecat, treecorr_config)
-        xi_bs.append(results[0])
-        varxi_bs.append(results[1])
-    th = results[2]
+        xi_bs.append(results[1])
+        varxi_bs.append(results[2])
+        xi_true[q] = results[0]
+    th = results[3]
 
     # Correlation plot
     if params['corrplot']:
@@ -179,11 +182,17 @@ def main():
         colors = ['C00', 'C01', 'C02', 'C03', 'C04', 'C05']
 
         for q in range(params['nquant']):
-            xi_bs_mean = np.mean(np.reshape(xi_bs[q],(params['nbootstrap'],len(th))),axis=0)
-            xi_bs_var = np.mean(np.reshape(varxi_bs[q],(params['nbootstrap'],len(th))),axis=0)  
-            ax.fill_between(th, y1=xi_bs_mean+np.sqrt(xi_bs_var), y2=xi_bs_mean-np.sqrt(xi_bs_var), color=colors[q],
-                           alpha=alpha)
-            ax.plot(th, xi_bs_mean, c=colors[q], label=labels[q])
+            #for i in range(params['nbootstrap']):
+            #    ax.plot(th, xi_bs[q][i], c=colors[q], alpha=alpha)
+            var_bs = np.var(xi_bs[q], axis=0)
+            ax.fill_between(th, y1=xi_true[q]+np.sqrt(var_bs), y2=xi_true[q]-np.sqrt(var_bs), color=colors[q], alpha=alpha)
+            #xi_bs_mean = np.mean(np.reshape(xi_bs[q],(params['nbootstrap'],len(th))),axis=0)
+            #xi_bs_var = np.mean(np.reshape(varxi_bs[q],(params['nbootstrap'],len(th))),axis=0)  
+            #ax.fill_between(th, y1=xi_bs_mean+np.sqrt(xi_bs_var), y2=xi_bs_mean-np.sqrt(xi_bs_var), color=colors[q],
+            #               alpha=alpha)
+            #ax.plot(th, xi_bs_mean, c=colors[q], label=labels[q])
+            ax.plot(th, xi_true[q], c=colors[q], label=labels[q])
+
 
         ax.set_xlabel(r'$\theta$ (degrees)')
         ax.set_ylabel(r'$\omega(\theta)$')
@@ -198,7 +207,7 @@ def main():
 
         def format_axes(ax):
             """Format axes with RA in hours and Dec in degrees."""
-            xticks_deg = [-120, -60, 0, 60, 120]
+            xticks_deg = [-120, -30, 0, 60, 120]
             xticks_rad = np.radians(xticks_deg)
             ax.set_xticks(xticks_rad)
             ax.set_xticklabels([f'{int(deg)}°' for deg in xticks_deg])
@@ -225,7 +234,7 @@ def main():
             ax.scatter(gxs_sc.ra.wrap_at(180*u.degree).to(u.rad),gxs_sc.dec.to(u.rad),s=5,c='C03',label='Galaxies')
 
             ax.legend(loc=1,fontsize=10)
-            ax.set_title(f'{quantiles[q]:.1f} '+r'$< K_{abs} <$ '+f'{quantiles[q+1]:.1f}')
+            ax.set_title(f'{quantiles[q]:.1f} '+r'< K_{abs} < '+f'{quantiles[q+1]:.1f}')
             ax.grid(True)
             format_axes(ax)
 
@@ -236,11 +245,13 @@ def main():
     # Integration
     print('Integration')
     int_results = [np.zeros(params['nbootstrap']) for _ in range(params['nquant'])]
+    int_mean = np.zeros(params['nquant'])
     for q in range(params['nquant']):
+        int_mean[q] = integrate.trapezoid(xi_true[q] * th, x=th)
         for i in range(params['nbootstrap']):
             int_results[q][i] = integrate.trapezoid(th * xi_bs[q][i], x=th)
 
-    int_mean = np.array([np.mean(int_results[q]) for q in range(params['nquant'])])
+    #int_mean = np.array([np.mean(int_results[q]) for q in range(params['nquant'])])
     int_std = np.array([np.std(int_results[q],ddof=1) for q in range(params['nquant'])])
 
     # Write results

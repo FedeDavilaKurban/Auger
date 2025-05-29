@@ -40,7 +40,7 @@ def generate_RandomCatalogue(ra,dec,nmult,seed=None,mask=True, deflection=None):
 
     return rand_ra_cut, rand_dec_cut 
 
-def get_xibs(data,nbootstrap,nbins,rcat,ecat,config):
+def get_xibs(data,nbootstrap,nbins,rcat,ecat,config,seed=None):
     import numpy as np
     import treecorr
 
@@ -52,18 +52,27 @@ def get_xibs(data,nbootstrap,nbins,rcat,ecat,config):
     rr = treecorr.NNCorrelation(config)
     rd = treecorr.NNCorrelation(config)
 
+    rr.process(rcat)
+    rd.process(ecat,rcat)
     for n in range(nbootstrap):
+        if seed!=None: np.random.seed(seed)
+        elif seed==None: np.random.seed()
         databs = np.random.choice(data,size=len(data))
         gcat = treecorr.Catalog(ra=databs['_RAJ2000'], dec=databs['_DEJ2000'],\
                                 ra_units='deg', dec_units='deg')
 
-        rr.process(rcat)
         dd.process(gcat,ecat)
         dr.process(gcat,rcat)
-        rd.process(ecat,rcat)
 
         xi_bs[n], varxi_bs[n] = dd.calculateXi(rr=rr,dr=dr,rd=rd)
-    return xi_bs, varxi_bs, dd.meanr
+
+    # Calculate the true correlation function
+    gcat = treecorr.Catalog(ra=data['_RAJ2000'], dec=data['_DEJ2000'],\
+                                ra_units='deg', dec_units='deg')
+    dd.process(gcat,ecat)
+    dr.process(gcat,rcat)
+    xi_true = dd.calculateXi(rr=rr, dr=dr, rd=rd)[0]
+    return xi_true, xi_bs, varxi_bs, dd.meanr
 
 def get_xibs_auto(data,RAcol,DECcol,nbootstrap,nbins,rcat,config):
     import numpy as np
@@ -77,15 +86,6 @@ def get_xibs_auto(data,RAcol,DECcol,nbootstrap,nbins,rcat,config):
     dr = treecorr.NNCorrelation(config)
     rr = treecorr.NNCorrelation(config)
 
-    # Calculate xi_true
-    gcat = treecorr.Catalog(ra=data[RAcol], dec=data[DECcol],\
-                            ra_units='deg', dec_units='deg')
-    rr.process(rcat)
-    dd.process(gcat)
-    dr.process(gcat,rcat)
-    xi_true, varxi_true = dd.calculateXi(rr=rr,dr=dr)
-
-    # Bootstrap resampling for variance estimation
     for n in range(nbootstrap):
         databs = np.random.choice(data,size=len(data))
         gcat = treecorr.Catalog(ra=databs[RAcol], dec=databs[DECcol],\
@@ -98,7 +98,7 @@ def get_xibs_auto(data,RAcol,DECcol,nbootstrap,nbins,rcat,config):
         xi_bs[n], varxi_bs[n] = dd.calculateXi(rr=rr,dr=dr)
         theta_[n] = dd.meanr
 
-    #xi_mean = xi_bs.mean(axis=0)
+    xi_mean = xi_bs.mean(axis=0)
     varxi = varxi_bs.mean(axis=0)
     theta = theta_.mean(axis=0)
-    return xi_true, varxi, theta
+    return xi_mean, varxi, theta
