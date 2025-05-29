@@ -1,4 +1,4 @@
-def generate_RandomCatalogue(ra,dec,nmult,seed=None,mask=True):
+def generate_RandomCatalogue(ra,dec,nmult,seed=None,mask=True, deflection=None):
     import numpy as np
     from astropy.coordinates import SkyCoord
     import astropy.units as u
@@ -15,15 +15,30 @@ def generate_RandomCatalogue(ra,dec,nmult,seed=None,mask=True):
                                     len(ra)*nmult*100)
     rand_dec = np.arcsin(rand_sindec)*180./np.pi
 
+    # If deflection region is specified, select accordingly
+    if deflection != None:
+        if deflection=='high':
+           rand_dec = rand_dec[(rand_ra > 200.)|(rand_ra < 90.)]
+           rand_ra = rand_ra[(rand_ra > 200.)|(rand_ra < 90.)]
+
+        elif deflection=='low': 
+           rand_dec = rand_dec[(rand_ra < 200.)&(rand_ra > 90.)]
+           rand_ra = rand_ra[(rand_ra < 200.)&(rand_ra > 90.)]
+
     #Eliminates points within 5° in galactic latitude
     if mask==True:
         ran = SkyCoord(rand_ra,rand_dec,frame='icrs',unit='degree')
         mask_ran = np.where([abs(ran.galactic.b)>5.*(u.degree)])[1]
         rand_ra = rand_ra[mask_ran]
         rand_dec = rand_dec[mask_ran]
+    
+    rand_ra_cut = rand_ra[:len(ra)*nmult]
+    rand_dec_cut = rand_dec[:len(ra)*nmult]
 
-    return rand_ra[:len(ra)*nmult], rand_dec[:len(ra)*nmult]
+    if rand_ra_cut.size != len(ra)*nmult:
+        raise ValueError(f"Random catalogue size mismatch: expected {len(ra)*nmult}, got {rand_ra_cut.size}")
 
+    return rand_ra_cut, rand_dec_cut 
 
 def get_xibs(data,nbootstrap,nbins,rcat,ecat,config):
     import numpy as np

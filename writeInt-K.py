@@ -70,6 +70,16 @@ def main():
     gxs = load_data(params['sample'])
     gxs = gxs[gxs['cz'] > 1000.]
 
+    # If deflection region is specified, select accordingly
+    if params['def'] != None:
+        if params['def']=='high':
+            gxs = gxs[(gxs['_RAJ2000'] > 200.)|(gxs['_RAJ2000'] < 90.)]
+            events_a8 = events_a8[(events_a8['RA'] > 200.)|(events_a8['RA'] < 90.)]
+
+        elif params['def']=='low': 
+            gxs = gxs[(gxs['_RAJ2000'] < 200.)&(gxs['_RAJ2000'] > 90.)]
+            events_a8 = events_a8[(events_a8['RA'] < 200.)&(events_a8['RA'] > 90.)]
+
     # Read class 
     if params['gclass'] == 2:
         gxs = gxs[gxs['class'] == 2]
@@ -80,11 +90,11 @@ def main():
         if params['bptagn'] == 0: gxs = gxs[gxs['BPTAGN'] == 1]
         elif params['bptagn'] == 1: gxs = gxs[gxs['BPTAGN'] == 1]
 
-    # Read def
-    if params['def'] == 'low':
-        gxs = gxs[gxs['deflection'] <= params['def_thresh']]
-    elif params['def'] == 'high':   
-        gxs = gxs[gxs['deflection'] > params['def_thresh']]
+    # # Read def
+    # if params['def'] == 'low':
+    #     gxs = gxs[gxs['deflection'] <= params['def_thresh']]
+    # elif params['def'] == 'high':   
+    #     gxs = gxs[gxs['deflection'] > params['def_thresh']]
 
     # Define quantiles
     if params['bin_K']=='quantiles':
@@ -144,34 +154,16 @@ def main():
     #seeds = np.linspace(1000,1+params['nquant']-1,params['nquant'],dtype=int)
     ra_random = []
     dec_random = []
-    def deflec_regions(ra, dec, ra_min, ra_max):
-        ra_rad_orig = np.radians(ra - 360. * (ra > 180))
-        dec_rad_orig = np.radians(dec)
-        mask = (ra_rad_orig > np.radians(ra_min)) & (ra_rad_orig < np.radians(ra_max))
-        return {
-            'high': (ra_rad_orig[mask], dec_rad_orig[mask]),
-            'low': (ra_rad_orig[~mask], dec_rad_orig[~mask])
-        }
     for q in range(params['nquant']):
-        if params['def']=='high':
-            cut_data = deflec_regions(data[q]['_RAJ2000'],data[q]['_DEJ2000'],-160,90)['high']
-            randoms = generate_RandomCatalogue(data[q][0], data[q][1], params['nmult'], seed=None, mask=True)
-        if params['def']=='low':
-            data[q] = deflec_regions(data[q]['_RAJ2000'],data[q]['_DEJ2000'],-160,90)['low']
-            randoms = generate_RandomCatalogue(data[q][0], data[q][1], params['nmult'], seed=None, mask=True)
-        else:
-            randoms = generate_RandomCatalogue(data[q]['_RAJ2000'], data[q]['_DEJ2000'], params['nmult'], seed=None, mask=True)
+        randoms = generate_RandomCatalogue(data[q]['_RAJ2000'], data[q]['_DEJ2000'], params['nmult'], seed=None, mask=True, deflection=params['def'])
         ra_random.append(randoms[0])
         dec_random.append(randoms[1])
-    #print(radec_random[0][0])
     rcat = [treecorr.Catalog(ra=ra_random[q], dec=dec_random[q],
             ra_units='deg', dec_units='deg') for q in range(params['nquant'])]
 
     xi_bs, varxi_bs = [], []
     for q in range(params['nquant']):
         print(f'{q + 1}/{params["nquant"]}')
-        print(data[q])
-
         results = get_xibs(data[q], params['nbootstrap'], params['nbins'], rcat[q], ecat, treecorr_config)
         xi_bs.append(results[0])
         varxi_bs.append(results[1])
@@ -206,11 +198,11 @@ def main():
 
         def format_axes(ax):
             """Format axes with RA in hours and Dec in degrees."""
-            xticks_deg = np.arange(-120, 180, 60)
+            xticks_deg = [-120, -30, 0, 60, 120]
             xticks_rad = np.radians(xticks_deg)
             ax.set_xticks(xticks_rad)
             ax.set_xticklabels([f'{int(deg)}°' for deg in xticks_deg])
-            yticks_deg = np.arange(-90, 91, 30)
+            yticks_deg = [-60, -30, 0, 30, 60]
             yticks_rad = np.radians(yticks_deg)
             ax.set_yticks(yticks_rad)
             ax.set_yticklabels([f'{deg}°' for deg in yticks_deg])
@@ -228,14 +220,14 @@ def main():
             ran_sc = SkyCoord(ra_random[q], dec_random[q],frame='icrs',unit='degree')
 
             #ax = fig.add_subplot(111, projection="aitoff")
-            ax.scatter(ran_sc.ra.wrap_at(180*u.degree).to(u.rad),ran_sc.dec.to(u.rad),s=3,c='k',label='random')
-            ax.scatter(eve_sc.ra.wrap_at(180*u.degree).to(u.rad),eve_sc.dec.to(u.rad),s=.1,label='events')
-            ax.scatter(gxs_sc.ra.wrap_at(180*u.degree).to(u.rad),gxs_sc.dec.to(u.rad),s=5,c='C03',label='galaxies hdef')
+            ax.scatter(ran_sc.ra.wrap_at(180*u.degree).to(u.rad),ran_sc.dec.to(u.rad),s=3,c='k',label='Random Data')
+            ax.scatter(eve_sc.ra.wrap_at(180*u.degree).to(u.rad),eve_sc.dec.to(u.rad),s=.1,label='UHECRs')
+            ax.scatter(gxs_sc.ra.wrap_at(180*u.degree).to(u.rad),gxs_sc.dec.to(u.rad),s=5,c='C03',label='Galaxies')
 
             ax.legend(loc=1,fontsize=10)
-            ax.set_title(f'{quantiles[q]:.1f} < K_abs < {quantiles[q+1]:.1f}')
+            ax.set_title(f'{quantiles[q]:.1f} '+r'< K_{abs} < '+f'{quantiles[q+1]:.1f}')
             ax.grid(True)
-        
+            format_axes(ax)
 
         plt.tight_layout()
         plt.savefig(skyplotname)
