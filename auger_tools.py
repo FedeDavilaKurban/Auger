@@ -77,6 +77,15 @@ def get_xibs_auto(data,RAcol,DECcol,nbootstrap,nbins,rcat,config):
     dr = treecorr.NNCorrelation(config)
     rr = treecorr.NNCorrelation(config)
 
+    # Calculate xi_true
+    gcat = treecorr.Catalog(ra=data[RAcol], dec=data[DECcol],\
+                            ra_units='deg', dec_units='deg')
+    rr.process(rcat)
+    dd.process(gcat)
+    dr.process(gcat,rcat)
+    xi_true, varxi_true = dd.calculateXi(rr=rr,dr=dr)
+
+    # Bootstrap resampling for variance estimation
     for n in range(nbootstrap):
         databs = np.random.choice(data,size=len(data))
         gcat = treecorr.Catalog(ra=databs[RAcol], dec=databs[DECcol],\
@@ -89,7 +98,7 @@ def get_xibs_auto(data,RAcol,DECcol,nbootstrap,nbins,rcat,config):
         xi_bs[n], varxi_bs[n] = dd.calculateXi(rr=rr,dr=dr)
         theta_[n] = dd.meanr
 
-    xi_mean = xi_bs.mean(axis=0)
+    #xi_mean = xi_bs.mean(axis=0)
     varxi = varxi_bs.mean(axis=0)
     theta = theta_.mean(axis=0)
-    return xi_mean, varxi, theta
+    return xi_true, varxi, theta
