@@ -90,12 +90,6 @@ def main():
         if params['bptagn'] == 0: gxs = gxs[gxs['BPTAGN'] == 1]
         elif params['bptagn'] == 1: gxs = gxs[gxs['BPTAGN'] == 1]
 
-    # # Read def
-    # if params['def'] == 'low':
-    #     gxs = gxs[gxs['deflection'] <= params['def_thresh']]
-    # elif params['def'] == 'high':   
-    #     gxs = gxs[gxs['deflection'] > params['def_thresh']]
-
     # Define quantiles
     if params['bin_K']=='quantiles':
         quantiles = np.quantile(gxs['K_abs'], np.linspace(0, 1, params['nquant'] + 1))
