@@ -2,7 +2,7 @@ import numpy as np
 from astropy.io import ascii
 from astropy.coordinates import SkyCoord
 import astropy.units as u
-from auger_tools import generate_RandomCatalogue, get_xibs
+from auger_tools import generate_RandomCatalogue, get_xibs, apply_deflection_mask
 import configparser
 import treecorr
 import matplotlib.pyplot as plt
@@ -41,7 +41,7 @@ def load_data(sample):
     elif sample == 'nocontrol':
         filename_g = '../data/2MRSxWISE_VLS_d1d5_sinAGNWISEniBPT_cz1000.txt'
     elif sample == 'agn':
-        filename_g = '../data/VLS_WISEorBPT_AGNs_def.txt'
+        filename_g = '../data/VLS_WISEorBPT_AGNs.txt'
     else:
         raise ValueError(f"Unknown sample type: {sample}")
     print(f'Sample file: {filename_g}')
@@ -71,14 +71,18 @@ def main():
     gxs = gxs[gxs['cz'] > 1000.]
 
     # If deflection region is specified, select accordingly
-    if params['def'] != None:
-        if params['def']=='high':
-            gxs = gxs[(gxs['_RAJ2000'] > 200.)|(gxs['_RAJ2000'] < 90.)]
-            events_a8 = events_a8[(events_a8['RA'] > 200.)|(events_a8['RA'] < 90.)]
+    deflection_file = '../data/JF12_GMFdeflection_Z1_E10EeV.csv'
+    if params['def'] == 'high' or params['def'] == 'low':
+        # if params['def']=='high':
+        #     gxs = gxs[(gxs['_RAJ2000'] > 200.)|(gxs['_RAJ2000'] < 90.)]
+        #     events_a8 = events_a8[(events_a8['RA'] > 200.)|(events_a8['RA'] < 90.)]
 
-        elif params['def']=='low': 
-            gxs = gxs[(gxs['_RAJ2000'] < 200.)&(gxs['_RAJ2000'] > 90.)]
-            events_a8 = events_a8[(events_a8['RA'] < 200.)&(events_a8['RA'] > 90.)]
+        # elif params['def']=='low': 
+        #     gxs = gxs[(gxs['_RAJ2000'] < 200.)&(gxs['_RAJ2000'] > 90.)]
+        #     events_a8 = events_a8[(events_a8['RA'] < 200.)&(events_a8['RA'] > 90.)]
+        #deflection_mask = apply_deflection_mask(deflection_file, ra, dec, mask='high')
+        gxs = gxs[apply_deflection_mask(deflection_file, gxs['_RAJ2000'], gxs['_DEJ2000'], params['def'])]
+        events_a8 = events_a8[apply_deflection_mask(deflection_file, events_a8['RA'], events_a8['dec'], params['def'])]
 
     # Read class 
     if params['gclass'] == 2:
@@ -150,7 +154,7 @@ def main():
     dec_random = []
     for q in range(params['nquant']):
         randoms = generate_RandomCatalogue(data[q]['_RAJ2000'], data[q]['_DEJ2000'], params['nmult'], \
-                                           seed=999, mask=True, deflection=params['def'])
+                                           seed=999, milkyway_mask=True, deflection=params['def'])
         ra_random.append(randoms[0])
         dec_random.append(randoms[1])
     rcat = [treecorr.Catalog(ra=ra_random[q], dec=dec_random[q],

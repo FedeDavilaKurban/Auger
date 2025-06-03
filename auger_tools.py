@@ -1,14 +1,18 @@
-def generate_RandomCatalogue(ra,dec,nmult,seed=None,mask=True, deflection=None):
+def generate_RandomCatalogue(ra,dec,nmult,seed=None, milkyway_mask=True, deflection=None, deflection_file='../data/JF12_GMFdeflection_Z1_E10EeV.csv'):
     import numpy as np
     from astropy.coordinates import SkyCoord
     import astropy.units as u
-
+    
     if seed!=None: np.random.seed(seed)
 
-    ra_min = np.min(ra)
-    ra_max = np.max(ra)
-    dec_min = np.min(dec)
-    dec_max = np.max(dec)
+    # ra_min = np.min(ra)
+    # ra_max = np.max(ra)
+    # dec_min = np.min(dec)
+    # dec_max = np.max(dec)
+    ra_min = 0.
+    ra_max = 360
+    dec_min = -90.
+    dec_max = 45.
 
     rand_ra = np.random.uniform(ra_min, ra_max, len(ra)*nmult*100)
     rand_sindec = np.random.uniform(np.sin(dec_min*np.pi/180.), np.sin(dec_max*np.pi/180.), \
@@ -16,25 +20,34 @@ def generate_RandomCatalogue(ra,dec,nmult,seed=None,mask=True, deflection=None):
     rand_dec = np.arcsin(rand_sindec)*180./np.pi
 
     # If deflection region is specified, select accordingly
-    if deflection != None:
-        if deflection=='high':
-           rand_dec = rand_dec[(rand_ra > 200.)|(rand_ra < 90.)]
-           rand_ra = rand_ra[(rand_ra > 200.)|(rand_ra < 90.)]
+    # if deflection != None:
+    #     if deflection=='high':
+    #        rand_dec = rand_dec[(rand_ra > 200.)|(rand_ra < 90.)]
+    #        rand_ra = rand_ra[(rand_ra > 200.)|(rand_ra < 90.)]
 
-        elif deflection=='low': 
-           rand_dec = rand_dec[(rand_ra < 200.)&(rand_ra > 90.)]
-           rand_ra = rand_ra[(rand_ra < 200.)&(rand_ra > 90.)]
+    #     elif deflection=='low': 
+    #        rand_dec = rand_dec[(rand_ra < 200.)&(rand_ra > 90.)]
+    #        rand_ra = rand_ra[(rand_ra < 200.)&(rand_ra > 90.)]
 
     #Eliminates points within 5° in galactic latitude
-    if mask==True:
+    if milkyway_mask==True:
         ran = SkyCoord(rand_ra,rand_dec,frame='icrs',unit='degree')
         mask_ran = np.where([abs(ran.galactic.b)>5.*(u.degree)])[1]
         rand_ra = rand_ra[mask_ran]
         rand_dec = rand_dec[mask_ran]
-    
+
+    # If deflection region is specified, select accordingly
+    if deflection == 'high' or deflection == 'low':
+        randoms = np.column_stack((rand_ra, rand_dec))
+        deflection_mask = apply_deflection_mask(deflection_file, randoms[:, 0], randoms[:, 1], deflection)
+        randoms = randoms[deflection_mask]
+        rand_ra = randoms[:, 0]
+        rand_dec = randoms[:, 1]
+
     rand_ra_cut = rand_ra[:len(ra)*nmult]
     rand_dec_cut = rand_dec[:len(ra)*nmult]
 
+    # Check if the size of the random catalogue matches the expected size
     if rand_ra_cut.size != len(ra)*nmult:
         raise ValueError(f"Random catalogue size mismatch: expected {len(ra)*nmult}, got {rand_ra_cut.size}")
 
@@ -102,3 +115,32 @@ def get_xibs_auto(data,RAcol,DECcol,nbootstrap,nbins,rcat,config):
     varxi = varxi_bs.mean(axis=0)
     theta = theta_.mean(axis=0)
     return xi_mean, varxi, theta
+
+def apply_deflection_mask(defl_file, ra_deg, dec_deg, deflection):
+    import numpy as np
+    import healpy as hp
+
+    # === Load/prepare deflection map ===
+    data = np.loadtxt(defl_file, delimiter=',', skiprows=1)
+    pixel_ids = data[:, 0].astype(int)
+    deflection_data = data[:, 3]
+    npix = int(np.max(pixel_ids)) + 1
+    nside = hp.npix2nside(npix)
+    nside = 64
+    deflection_map = np.full(npix, hp.UNSEEN)
+    deflection_map[pixel_ids] = deflection_data
+
+    # === Create binary masks ===
+    valid = deflection_map != hp.UNSEEN
+    threshold = np.median(deflection_map[valid])
+    if deflection=='high':
+        deflection_mask = np.zeros_like(deflection_map, dtype=bool)
+        deflection_mask[valid] = deflection_map[valid] > threshold
+    elif deflection=='low':
+        deflection_mask = np.zeros_like(deflection_map, dtype=bool)
+        deflection_mask[valid] = deflection_map[valid] <= threshold
+
+    theta = np.radians(90 - dec_deg)
+    phi = np.radians(ra_deg)
+    pix = hp.ang2pix(nside, theta, phi)
+    return deflection_mask[pix]
