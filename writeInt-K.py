@@ -34,7 +34,7 @@ def read_config(config_file):
     }
     return params
 
-def load_data(sample):
+def load_data(sample, min_cz=1200, gclass=None):
     """Load data based on the sample type."""
     if sample == '700control':
         filename_g = '../data/VLS_ang5_cz_700control_def.txt'
@@ -45,7 +45,20 @@ def load_data(sample):
     else:
         raise ValueError(f"Unknown sample type: {sample}")
     print(f'Sample file: {filename_g}')
-    return ascii.read(filename_g)
+
+    # Read galaxy data
+    data = ascii.read(filename_g)
+
+    # Cut distance
+    data = data[data['cz'] > min_cz]  
+
+    # Read class 
+    if gclass == 2:
+        data = data[data['class'] == 2]
+    elif gclass == 3:
+        data = data[data['class'] == 3]
+
+    return data
 
 def main():
     print('Reading files')
@@ -67,29 +80,15 @@ def main():
     events_a8 = events_a8[mask_eve]
 
     # Read galaxy data
-    gxs = load_data(params['sample'])
-    gxs = gxs[gxs['cz'] > 1000.]
+    gxs = load_data(params['sample'], min_cz=1200, gclass=params['gclass'])
 
     # If deflection region is specified, select accordingly
     deflection_file = '../data/JF12_GMFdeflection_Z1_E10EeV.csv'
     if params['def'] == 'high' or params['def'] == 'low':
-        # if params['def']=='high':
-        #     gxs = gxs[(gxs['_RAJ2000'] > 200.)|(gxs['_RAJ2000'] < 90.)]
-        #     events_a8 = events_a8[(events_a8['RA'] > 200.)|(events_a8['RA'] < 90.)]
-
-        # elif params['def']=='low': 
-        #     gxs = gxs[(gxs['_RAJ2000'] < 200.)&(gxs['_RAJ2000'] > 90.)]
-        #     events_a8 = events_a8[(events_a8['RA'] < 200.)&(events_a8['RA'] > 90.)]
-        #deflection_mask = apply_deflection_mask(deflection_file, ra, dec, mask='high')
         gxs = gxs[apply_deflection_mask(deflection_file, gxs['_RAJ2000'], gxs['_DEJ2000'], params['def'])]
         events_a8 = events_a8[apply_deflection_mask(deflection_file, events_a8['RA'], events_a8['dec'], params['def'])]
 
-    # Read class 
-    if params['gclass'] == 2:
-        gxs = gxs[gxs['class'] == 2]
-    elif params['gclass'] == 3:
-        gxs = gxs[gxs['class'] == 3]
-
+    # Read AGN type
     if params['sample'] == 'agn':
         if params['bptagn'] == 0: gxs = gxs[gxs['BPTAGN'] == 1]
         elif params['bptagn'] == 1: gxs = gxs[gxs['BPTAGN'] == 1]
@@ -107,6 +106,7 @@ def main():
     # Split sample into quantiles
     data = [gxs[(gxs['K_abs'] > quantiles[q]) & (gxs['K_abs'] < quantiles[q + 1])] for q in range(params['nquant'])]
 
+    # Filenames
     # Determine filename for Correlations plot
     if params['corrplot']:
         corrplotname = f'../plots/cross_treecorr_nq{params["nquant"]}_nmult{params["nmult"]}_nbs{params["nbootstrap"]}_{params["sample"]}'
@@ -119,7 +119,6 @@ def main():
         # Add format
         corrplotname += '.png'
         print(f'Save correlation plots to: {corrplotname}')
-
     # Determine filename for sky plot
     if params['skyplot']:
         skyplotname = f'../plots/skyplot_nq{params["nquant"]}_nmult{params["nmult"]}_nbs{params["nbootstrap"]}_{params["sample"]}'
@@ -132,7 +131,6 @@ def main():
         # Add format
         skyplotname += '.png'
         print(f'Save correlation plots to: {skyplotname}')
-
     # Determine filename for writing results
     if params['write']:
         filename = f'../data/int{str(int(params["maxsep"]))}_K_nq{params["nquant"]}_nbs{params["nbootstrap"]}_{params["sample"]}'
