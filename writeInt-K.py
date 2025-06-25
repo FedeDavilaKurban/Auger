@@ -60,6 +60,182 @@ def load_data(sample, min_cz=1200, gclass=None):
 
     return data
 
+def skyplot(skyplotname, params, data, events_a8, ra_random, dec_random, quantiles):
+
+    def format_axes(ax):
+        """Format axes with RA in hours and Dec in degrees."""
+        xticks_deg = [-120, -60, 0, 60, 120]
+        xticks_rad = np.radians(xticks_deg)
+        ax.set_xticks(xticks_rad)
+        ax.set_xticklabels([f'{int(deg)}°' for deg in xticks_deg])
+        yticks_deg = [-60, -30, 0, 30, 60]
+        yticks_rad = np.radians(yticks_deg)
+        ax.set_yticks(yticks_rad)
+        ax.set_yticklabels([f'{deg}°' for deg in yticks_deg])
+        ax.tick_params(axis='both', which='major', labelsize=12)
+        #ax.tick_params(axis='both', which='minor', labelsize=8)
+        ax.grid(True)
+    print('Plotting sky coordinates')
+    if params['nquant'] == 1:
+        nrows = 1
+        ncols = 1
+    else:
+        nrows = int(params['nquant'] / 2)
+        ncols = 2
+    fig, axs = plt.subplots(nrows=nrows, ncols=ncols, \
+                            figsize=(12, 8), subplot_kw={'projection': 'aitoff'})        
+
+    # Ensure axs is always iterable
+    axs = np.array(axs).reshape(-1)
+
+    for q, ax in zip(range(params['nquant']),axs):
+        gxs_sc = SkyCoord(data[q]['_RAJ2000'],data[q]['_DEJ2000'],frame='icrs',unit='degree')
+
+        eve_sc = SkyCoord(events_a8['RA'],events_a8['dec'],frame='icrs',unit='degree')
+        ran_sc = SkyCoord(ra_random[q], dec_random[q],frame='icrs',unit='degree')
+
+        #ax = fig.add_subplot(111, projection="aitoff")
+        ax.scatter(ran_sc.ra.wrap_at(180*u.degree).to(u.rad),ran_sc.dec.to(u.rad),s=3,c='k',label='Random Data')
+        ax.scatter(eve_sc.ra.wrap_at(180*u.degree).to(u.rad),eve_sc.dec.to(u.rad),s=.1,label='UHECRs')
+        ax.scatter(gxs_sc.ra.wrap_at(180*u.degree).to(u.rad),gxs_sc.dec.to(u.rad),s=5,c='C03',label='Galaxies')
+
+        ax.legend(loc=1,fontsize=10)
+        ax.set_title(f'{quantiles[q]:.1f} '+r'< K_{abs} < '+f'{quantiles[q+1]:.1f}')
+        ax.grid(True)
+        format_axes(ax)
+
+    plt.tight_layout()
+    plt.savefig(skyplotname)
+
+def correlation_plot(corrplotname, params, th, xi_true, xi_bs, varxi_bs, quantiles):
+    print('Plotting correlations')
+    fig, ax = plt.subplots()
+
+    alpha, capsize = .2, 2
+    labels = [f'{quantiles[q]:.1f}<K_abs<{quantiles[q + 1]:.1f}' for q in range(params['nquant'])]
+    colors = ['C00', 'C01', 'C02', 'C03', 'C04', 'C05']
+
+    for q in range(params['nquant']):
+        var_bs = np.var(xi_bs[q], axis=0)
+        ax.fill_between(th, y1=xi_true[q]+np.sqrt(var_bs), y2=xi_true[q]-np.sqrt(var_bs), color=colors[q], alpha=alpha)
+        ax.plot(th, xi_true[q], c=colors[q], label=labels[q])
+
+    ax.set_xlabel(r'$\theta$ (degrees)')
+    ax.set_ylabel(r'$\omega(\theta)$')
+    ax.set_xlim([params['minsep'], params['maxsep']])
+    if params['bin_type']=='Log':
+        ax.set_xscale('log')
+    ax.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
+    plt.savefig(corrplotname)
+
+def get_corrplotname(params):
+    corrplotname = f'../plots/cross_treecorr_nq{params["nquant"]}_nmult{params["nmult"]}_nbs{params["nbootstrap"]}_{params["sample"]}'
+    # Add class
+    if params['gclass'] == 2: corrplotname+=f'class{params['gclass']}'
+    elif params['gclass'] == 3: corrplotname+=f'class{params['gclass']}'
+    # Add deflection
+    if params['def'] == 'low': corrplotname+=f'_def{params['def']}{int(params['def_thresh'])}'
+    elif params['def'] == 'high': corrplotname+=f'_def{params['def']}{int(params['def_thresh'])}'
+    # Add format
+    corrplotname += '.png'
+    print(f'Save correlation plots to: {corrplotname}')
+
+    return corrplotname
+
+def get_skyplotname(params):
+    skyplotname = f'../plots/skyplot_nq{params["nquant"]}_nmult{params["nmult"]}_nbs{params["nbootstrap"]}_{params["sample"]}'
+    # Add class
+    if params['gclass'] == 2: skyplotname+=f'class{params['gclass']}'
+    elif params['gclass'] == 3: skyplotname+=f'class{params['gclass']}'
+    # Add deflection
+    if params['def'] == 'low': skyplotname+=f'_def{params['def']}{int(params['def_thresh'])}'
+    elif params['def'] == 'high': skyplotname+=f'_def{params['def']}{int(params['def_thresh'])}'
+    # Add format
+    skyplotname += '.png'
+    print(f'Save correlation plots to: {skyplotname}')
+
+    return skyplotname
+
+def get_filename(params):
+    filename = f'../data/int{str(int(params["maxsep"]))}_K_nq{params["nquant"]}_nbs{params["nbootstrap"]}_{params["sample"]}'
+    # Add class
+    if params['gclass'] == 2: filename+=f'class{params['gclass']}'
+    elif params['gclass'] == 3: filename+=f'class{params['gclass']}'
+    # Add deflection
+    if params['def'] == 'low': filename+=f'_def{params['def']}{int(params['def_thresh'])}'
+    elif params['def'] == 'high': filename+=f'_def{params['def']}{int(params['def_thresh'])}'
+    # Add format
+    filename += '.npz'
+    print(f'Save results to: {filename}')
+
+    return filename
+
+def crosscorrelations(data, events_a8, params, treecorr_config):
+    ecat = treecorr.Catalog(ra=events_a8['RA'], dec=events_a8['dec'], ra_units='deg', dec_units='deg')
+    #seeds = np.linspace(1000,1+params['nquant']-1,params['nquant'],dtype=int)
+    ra_random = []
+    dec_random = []
+    for q in range(params['nquant']):
+        randoms = generate_RandomCatalogue(data[q]['_RAJ2000'], data[q]['_DEJ2000'], params['nmult'], \
+                                           seed=999, milkyway_mask=True, deflection=params['def'])
+        ra_random.append(randoms[0])
+        dec_random.append(randoms[1])
+    rcat = [treecorr.Catalog(ra=ra_random[q], dec=dec_random[q],
+            ra_units='deg', dec_units='deg') for q in range(params['nquant'])]
+
+    xi_bs, varxi_bs = [], []
+    xi_true = np.zeros((params['nquant'], params['nbins']))
+    for q in range(params['nquant']):
+        print(f'{q + 1}/{params["nquant"]}')
+        results = get_xibs(data[q], params['nbootstrap'], params['nbins'], rcat[q], ecat, treecorr_config)
+        xi_bs.append(results[1])
+        varxi_bs.append(results[2])
+        xi_true[q] = results[0]
+    th = results[3]
+
+    return xi_true, xi_bs, varxi_bs, th, ra_random, dec_random
+
+def integration(xi_true, xi_bs, th, params):
+    int_results = [np.zeros(params['nbootstrap']) for _ in range(params['nquant'])]
+    int_mean = np.zeros(params['nquant'])
+    for q in range(params['nquant']):
+        int_mean[q] = integrate.trapezoid(xi_true[q] * th, x=th)
+        for i in range(params['nbootstrap']):
+            int_results[q][i] = integrate.trapezoid(th * xi_bs[q][i], x=th)
+
+    #int_mean = np.array([np.mean(int_results[q]) for q in range(params['nquant'])])
+    int_std = np.array([np.std(int_results[q],ddof=1) for q in range(params['nquant'])])
+
+    return int_mean, int_std
+
+def write_results(filename, int_mean, int_std, quantiles):
+    print(f'Writing results in: {filename}')
+
+    mean_mag = np.array([(quantiles[i]+quantiles[i+1])/2. for i in range(len(quantiles)-1)])
+    ascii.write(np.column_stack([int_mean, mean_mag, int_std]), filename,
+                names=['int_mean', 'meanMag', 'int_std'], overwrite=True)
+
+def get_quantiles(params, gxs):
+
+    if params['nquant'] == 1:
+        # If only one quantile, return the min and max of K_abs
+        quantiles = np.array([np.min(gxs['K_abs']), np.max(gxs['K_abs'])])
+
+    # Define quantiles
+    if params['bin_K']=='quantiles':
+        quantiles = np.quantile(gxs['K_abs'], np.linspace(0, 1, params['nquant'] + 1))
+
+    # Define bins
+    elif params['bin_K'] == 'adhoc':
+        if params['nquant']==4: quantiles = np.array([-26,-24,-23.2,-22.5,-22.])
+        elif params['nquant']==3: quantiles = np.array([-26,-23.2,-22.8,-22.])
+    else:
+        raise ValueError(f"Unknown binning method: {params['bin_K']}")
+    
+    print(f'Quantiles: {quantiles}')
+
+    return quantiles
+    
 def main():
     print('Reading files')
     params = read_config('cross+int.ini')
@@ -94,169 +270,38 @@ def main():
         elif params['bptagn'] == 1: gxs = gxs[gxs['BPTAGN'] == 1]
 
     # Define quantiles
-    if params['bin_K']=='quantiles':
-        quantiles = np.quantile(gxs['K_abs'], np.linspace(0, 1, params['nquant'] + 1))
-    # Define bins
-    elif params['bin_K'] == 'adhoc':
-        if params['nquant']==4: quantiles = np.array([-26,-24,-23.2,-22.5,-22.])
-        elif params['nquant']==3: quantiles = np.array([-26,-23.2,-22.8,-22.])
-    else:
-        raise ValueError(f"Unknown binning method: {params['bin_K']}")
+    quantiles = get_quantiles(params, gxs)
 
     # Split sample into quantiles
     data = [gxs[(gxs['K_abs'] > quantiles[q]) & (gxs['K_abs'] < quantiles[q + 1])] for q in range(params['nquant'])]
 
     # Filenames
-    # Determine filename for Correlations plot
     if params['corrplot']:
-        corrplotname = f'../plots/cross_treecorr_nq{params["nquant"]}_nmult{params["nmult"]}_nbs{params["nbootstrap"]}_{params["sample"]}'
-        # Add class
-        if params['gclass'] == 2: corrplotname+=f'class{params['gclass']}'
-        elif params['gclass'] == 3: corrplotname+=f'class{params['gclass']}'
-        # Add deflection
-        if params['def'] == 'low': corrplotname+=f'_def{params['def']}{int(params['def_thresh'])}'
-        elif params['def'] == 'high': corrplotname+=f'_def{params['def']}{int(params['def_thresh'])}'
-        # Add format
-        corrplotname += '.png'
-        print(f'Save correlation plots to: {corrplotname}')
-    # Determine filename for sky plot
+        corrplotname = get_corrplotname(params)
     if params['skyplot']:
-        skyplotname = f'../plots/skyplot_nq{params["nquant"]}_nmult{params["nmult"]}_nbs{params["nbootstrap"]}_{params["sample"]}'
-        # Add class
-        if params['gclass'] == 2: skyplotname+=f'class{params['gclass']}'
-        elif params['gclass'] == 3: skyplotname+=f'class{params['gclass']}'
-        # Add deflection
-        if params['def'] == 'low': skyplotname+=f'_def{params['def']}{int(params['def_thresh'])}'
-        elif params['def'] == 'high': skyplotname+=f'_def{params['def']}{int(params['def_thresh'])}'
-        # Add format
-        skyplotname += '.png'
-        print(f'Save correlation plots to: {skyplotname}')
-    # Determine filename for writing results
+        skyplotname = get_skyplotname(params)
     if params['write']:
-        filename = f'../data/int{str(int(params["maxsep"]))}_K_nq{params["nquant"]}_nbs{params["nbootstrap"]}_{params["sample"]}'
-        # Add class
-        if params['gclass'] == 2: filename+=f'class{params['gclass']}'
-        elif params['gclass'] == 3: filename+=f'class{params['gclass']}'
-        # Add deflection
-        if params['def'] == 'low': filename+=f'_def{params['def']}{int(params['def_thresh'])}'
-        elif params['def'] == 'high': filename+=f'_def{params['def']}{int(params['def_thresh'])}'
-        # Add format
-        filename += '.npz'
-        print(f'Save results to: {filename}')
+        filename = get_filename(params)
 
     # Calculations
     print('Calculating crosscorrelations')
-    ecat = treecorr.Catalog(ra=events_a8['RA'], dec=events_a8['dec'], ra_units='deg', dec_units='deg')
-    #seeds = np.linspace(1000,1+params['nquant']-1,params['nquant'],dtype=int)
-    ra_random = []
-    dec_random = []
-    for q in range(params['nquant']):
-        randoms = generate_RandomCatalogue(data[q]['_RAJ2000'], data[q]['_DEJ2000'], params['nmult'], \
-                                           seed=999, milkyway_mask=True, deflection=params['def'])
-        ra_random.append(randoms[0])
-        dec_random.append(randoms[1])
-    rcat = [treecorr.Catalog(ra=ra_random[q], dec=dec_random[q],
-            ra_units='deg', dec_units='deg') for q in range(params['nquant'])]
-
-    xi_bs, varxi_bs = [], []
-    xi_true = np.zeros((params['nquant'], params['nbins']))
-    for q in range(params['nquant']):
-        print(f'{q + 1}/{params["nquant"]}')
-        results = get_xibs(data[q], params['nbootstrap'], params['nbins'], rcat[q], ecat, treecorr_config)
-        xi_bs.append(results[1])
-        varxi_bs.append(results[2])
-        xi_true[q] = results[0]
-    th = results[3]
+    xi_true, xi_bs, varxi_bs, th, ra_random, dec_random = crosscorrelations(data, events_a8, params, treecorr_config)
 
     # Correlation plot
     if params['corrplot']:
-        print('Plotting correlations')
-        fig, ax = plt.subplots()
-
-        alpha, capsize = .2, 2
-        labels = [f'{quantiles[q]:.1f}<K_abs<{quantiles[q + 1]:.1f}' for q in range(params['nquant'])]
-        colors = ['C00', 'C01', 'C02', 'C03', 'C04', 'C05']
-
-        for q in range(params['nquant']):
-            #for i in range(params['nbootstrap']):
-            #    ax.plot(th, xi_bs[q][i], c=colors[q], alpha=alpha)
-            var_bs = np.var(xi_bs[q], axis=0)
-            ax.fill_between(th, y1=xi_true[q]+np.sqrt(var_bs), y2=xi_true[q]-np.sqrt(var_bs), color=colors[q], alpha=alpha)
-            #xi_bs_mean = np.mean(np.reshape(xi_bs[q],(params['nbootstrap'],len(th))),axis=0)
-            #xi_bs_var = np.mean(np.reshape(varxi_bs[q],(params['nbootstrap'],len(th))),axis=0)  
-            #ax.fill_between(th, y1=xi_bs_mean+np.sqrt(xi_bs_var), y2=xi_bs_mean-np.sqrt(xi_bs_var), color=colors[q],
-            #               alpha=alpha)
-            #ax.plot(th, xi_bs_mean, c=colors[q], label=labels[q])
-            ax.plot(th, xi_true[q], c=colors[q], label=labels[q])
-
-
-        ax.set_xlabel(r'$\theta$ (degrees)')
-        ax.set_ylabel(r'$\omega(\theta)$')
-        ax.set_xlim([params['minsep'], params['maxsep']])
-        if params['bin_type']=='Log':
-            ax.set_xscale('log')
-        ax.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
-        plt.savefig(corrplotname)
+        correlation_plot(corrplotname, params, th, xi_true, xi_bs, varxi_bs, quantiles)
 
     # Sky Plot
     if params['skyplot']:
-
-        def format_axes(ax):
-            """Format axes with RA in hours and Dec in degrees."""
-            xticks_deg = [-120, -30, 0, 60, 120]
-            xticks_rad = np.radians(xticks_deg)
-            ax.set_xticks(xticks_rad)
-            ax.set_xticklabels([f'{int(deg)}°' for deg in xticks_deg])
-            yticks_deg = [-60, -30, 0, 30, 60]
-            yticks_rad = np.radians(yticks_deg)
-            ax.set_yticks(yticks_rad)
-            ax.set_yticklabels([f'{deg}°' for deg in yticks_deg])
-            ax.tick_params(axis='both', which='major', labelsize=12)
-            #ax.tick_params(axis='both', which='minor', labelsize=8)
-            ax.grid(True)
-        print('Plotting sky coordinates')
-        fig, axs = plt.subplots(nrows=int(params['nquant']/2), ncols=2, \
-                                figsize=(12, 8), subplot_kw={'projection': 'aitoff'})        
-
-        for q, ax in zip(range(params['nquant']),axs.ravel()):
-            gxs_sc = SkyCoord(data[q]['_RAJ2000'],data[q]['_DEJ2000'],frame='icrs',unit='degree')
-
-            eve_sc = SkyCoord(events_a8['RA'],events_a8['dec'],frame='icrs',unit='degree')
-            ran_sc = SkyCoord(ra_random[q], dec_random[q],frame='icrs',unit='degree')
-
-            #ax = fig.add_subplot(111, projection="aitoff")
-            ax.scatter(ran_sc.ra.wrap_at(180*u.degree).to(u.rad),ran_sc.dec.to(u.rad),s=3,c='k',label='Random Data')
-            ax.scatter(eve_sc.ra.wrap_at(180*u.degree).to(u.rad),eve_sc.dec.to(u.rad),s=.1,label='UHECRs')
-            ax.scatter(gxs_sc.ra.wrap_at(180*u.degree).to(u.rad),gxs_sc.dec.to(u.rad),s=5,c='C03',label='Galaxies')
-
-            ax.legend(loc=1,fontsize=10)
-            ax.set_title(f'{quantiles[q]:.1f} '+r'< K_{abs} < '+f'{quantiles[q+1]:.1f}')
-            ax.grid(True)
-            format_axes(ax)
-
-        plt.tight_layout()
-        plt.savefig(skyplotname)
-
+        skyplot(skyplotname, params, data, events_a8, ra_random, dec_random, quantiles)
 
     # Integration
     print('Integration')
-    int_results = [np.zeros(params['nbootstrap']) for _ in range(params['nquant'])]
-    int_mean = np.zeros(params['nquant'])
-    for q in range(params['nquant']):
-        int_mean[q] = integrate.trapezoid(xi_true[q] * th, x=th)
-        for i in range(params['nbootstrap']):
-            int_results[q][i] = integrate.trapezoid(th * xi_bs[q][i], x=th)
-
-    #int_mean = np.array([np.mean(int_results[q]) for q in range(params['nquant'])])
-    int_std = np.array([np.std(int_results[q],ddof=1) for q in range(params['nquant'])])
+    int_mean, int_std = integration(xi_true, xi_bs, th, params)
 
     # Write results
     if params['write']:
-        #mean_mag = np.array([np.mean(data[q]['K_abs']) for q in range(params['nquant'])])
-        mean_mag = np.array([(quantiles[i]+quantiles[i+1])/2. for i in range(len(quantiles)-1)])
-        print(f'Writing results in: {filename}')
-        ascii.write(np.column_stack([int_mean, mean_mag, int_std]), filename,
-                    names=['int_mean', 'meanMag', 'int_std'], overwrite=True)
+        write_results(filename, int_mean, int_std, quantiles)
 
 if __name__ == "__main__":
     main()
