@@ -1,33 +1,19 @@
-def generate_RandomCatalogue(ra,dec,nmult,seed=None, milkyway_mask=True, deflection=None, deflection_file='../data/JF12_GMFdeflection_Z1_E10EeV.csv'):
+def generate_RandomCatalogue(N,nmult,seed=None, milkyway_mask=True, deflection=None, deflection_file='../data/JF12_GMFdeflection_Z1_E10EeV.csv'):
     import numpy as np
     from astropy.coordinates import SkyCoord
     import astropy.units as u
     
     if seed!=None: np.random.seed(seed)
 
-    # ra_min = np.min(ra)
-    # ra_max = np.max(ra)
-    # dec_min = np.min(dec)
-    # dec_max = np.max(dec)
     ra_min = 0.
     ra_max = 360
     dec_min = -90.
     dec_max = 45.
 
-    rand_ra = np.random.uniform(ra_min, ra_max, len(ra)*nmult*100)
+    rand_ra = np.random.uniform(ra_min, ra_max, N*nmult*100)
     rand_sindec = np.random.uniform(np.sin(dec_min*np.pi/180.), np.sin(dec_max*np.pi/180.), \
-                                    len(ra)*nmult*100)
+                                    N*nmult*100)
     rand_dec = np.arcsin(rand_sindec)*180./np.pi
-
-    # If deflection region is specified, select accordingly
-    # if deflection != None:
-    #     if deflection=='high':
-    #        rand_dec = rand_dec[(rand_ra > 200.)|(rand_ra < 90.)]
-    #        rand_ra = rand_ra[(rand_ra > 200.)|(rand_ra < 90.)]
-
-    #     elif deflection=='low': 
-    #        rand_dec = rand_dec[(rand_ra < 200.)&(rand_ra > 90.)]
-    #        rand_ra = rand_ra[(rand_ra < 200.)&(rand_ra > 90.)]
 
     #Eliminates points within 5° in galactic latitude
     if milkyway_mask==True:
@@ -44,12 +30,12 @@ def generate_RandomCatalogue(ra,dec,nmult,seed=None, milkyway_mask=True, deflect
         rand_ra = randoms[:, 0]
         rand_dec = randoms[:, 1]
 
-    rand_ra_cut = rand_ra[:len(ra)*nmult]
-    rand_dec_cut = rand_dec[:len(ra)*nmult]
+    rand_ra_cut = rand_ra[:N*nmult]
+    rand_dec_cut = rand_dec[:N*nmult]
 
     # Check if the size of the random catalogue matches the expected size
-    if rand_ra_cut.size != len(ra)*nmult:
-        raise ValueError(f"Random catalogue size mismatch: expected {len(ra)*nmult}, got {rand_ra_cut.size}")
+    if rand_ra_cut.size != N*nmult:
+        raise ValueError(f"Random catalogue size mismatch: expected {N*nmult}, got {rand_ra_cut.size}")
 
     return rand_ra_cut, rand_dec_cut 
 

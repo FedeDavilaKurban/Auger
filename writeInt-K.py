@@ -30,16 +30,25 @@ def read_config(config_file):
         'def_thresh': config.getfloat('Parameters', 'def_thresh'),
         'def': config.get('Parameters', 'def'),
         'bin_type': config.get('Parameters', 'bin_type'),
-        'skyplot': config.getboolean('Parameters', 'skyplot')
+        'skyplot': config.getboolean('Parameters', 'skyplot'),
+        'cz_min': config.getfloat('Parameters', 'cz_min'),
+        'cz_max': config.getint('Parameters', 'cz_max')
     }
+
+    # Optional parameter: cz_max
+    cz_max_raw = config['Parameters'].get('cz_max', None)
+    params['cz_max'] = None if cz_max_raw in [None, '', 'None'] else float(cz_max_raw)
+
     return params
 
-def load_data(sample, min_cz=1200, gclass=None):
+def load_data(sample, cz_min=1200, cz_max=None, gclass=None):
     """Load data based on the sample type."""
     if sample == '700control':
         filename_g = '../data/VLS_ang5_cz_700control_def.txt'
     elif sample == 'nocontrol':
         filename_g = '../data/2MRSxWISE_VLS_d1d5_sinAGNWISEniBPT_cz1000.txt'
+    elif sample == 'all2MRS_noAGN':
+        filename_g = '../data/2MRSxWISE_sinBPTAGNs.txt'
     elif sample == 'agn':
         filename_g = '../data/VLS_WISEorBPT_AGNs.txt'
     else:
@@ -49,8 +58,17 @@ def load_data(sample, min_cz=1200, gclass=None):
     # Read galaxy data
     data = ascii.read(filename_g)
 
+    # Cuts for 2MRS sample:
+    if sample == 'all2MRS_noAGN':
+        #data = data[data['_DEJ2000'] < 45.] # Cut declination
+        data = data[data['class']!= 1] # Exclude WISE AGNs
+
     # Cut distance
-    data = data[data['cz'] > min_cz]  
+    if cz_min < 1200: raise ValueError(f'cz_min must be at least 1200 km/s, got {cz_min}')
+    if cz_max is not None and cz_max > 9400.: raise ValueError(f'cz_max must be at most 9400 km/s for completeness, got {cz_max}')
+    data = data[data['cz'] > cz_min]  
+    if cz_max is not None:
+        data = data[data['cz'] < cz_max]
 
     # Read class 
     if gclass == 2:
@@ -136,6 +154,9 @@ def get_corrplotname(params):
     # Add deflection
     if params['def'] == 'low': corrplotname+=f'_def{params['def']}{int(params['def_thresh'])}'
     elif params['def'] == 'high': corrplotname+=f'_def{params['def']}{int(params['def_thresh'])}'
+    # Add czmax
+    if params['cz_max'] is not None:
+        corrplotname += f'_cz{int(params["cz_min"])}-{int(params["cz_max"])}'
     # Add format
     corrplotname += '.png'
     print(f'Save correlation plots to: {corrplotname}')
@@ -150,9 +171,12 @@ def get_skyplotname(params):
     # Add deflection
     if params['def'] == 'low': skyplotname+=f'_def{params['def']}{int(params['def_thresh'])}'
     elif params['def'] == 'high': skyplotname+=f'_def{params['def']}{int(params['def_thresh'])}'
+    # Add czmax
+    if params['cz_max'] is not None:
+        skyplotname += f'_cz{int(params["cz_min"])}-{int(params["cz_max"])}'
     # Add format
     skyplotname += '.png'
-    print(f'Save correlation plots to: {skyplotname}')
+    print(f'Save sky coverage plots to: {skyplotname}')
 
     return skyplotname
 
@@ -164,25 +188,48 @@ def get_filename(params):
     # Add deflection
     if params['def'] == 'low': filename+=f'_def{params['def']}{int(params['def_thresh'])}'
     elif params['def'] == 'high': filename+=f'_def{params['def']}{int(params['def_thresh'])}'
+    # Add czmax
+    if params['cz_max'] is not None:
+        filename += f'_cz{int(params["cz_min"])}-{int(params["cz_max"])}'
     # Add format
-    filename += '.npz'
-    print(f'Save results to: {filename}')
+    filename += '.npz'  
 
     return filename
 
-def crosscorrelations(data, events_a8, params, treecorr_config):
+def get_filecorrname(params):
+    filecorrname = f'../data/cross_treecorr_nq{params["nquant"]}_nmult{params["nmult"]}_nbs{params["nbootstrap"]}_{params["sample"]}'
+    # Add class
+    if params['gclass'] == 2: filecorrname+=f'class{params["gclass"]}'
+    elif params['gclass'] == 3: filecorrname+=f'class{params["gclass"]}'
+    # Add deflection
+    if params['def'] == 'low': filecorrname+=f'_def{params["def"]}{int(params["def_thresh"])}'
+    elif params['def'] == 'high': filecorrname+=f'_def{params["def"]}{int(params["def_thresh"])}'
+    # Add czmax
+    if params['cz_max'] is not None:
+        filecorrname += f'_cz{int(params["cz_min"])}-{int(params["cz_max"])}'
+    # Add format
+    filecorrname += '.npz'
+
+    return filecorrname
+
+def crosscorrelations(data, events_a8, params, treecorr_config, write_corr=True):
+    # Read UHECR data
     ecat = treecorr.Catalog(ra=events_a8['RA'], dec=events_a8['dec'], ra_units='deg', dec_units='deg')
+
+    # Generate random catalogue
     #seeds = np.linspace(1000,1+params['nquant']-1,params['nquant'],dtype=int)
     ra_random = []
     dec_random = []
     for q in range(params['nquant']):
-        randoms = generate_RandomCatalogue(data[q]['_RAJ2000'], data[q]['_DEJ2000'], params['nmult'], \
-                                           seed=999, milkyway_mask=True, deflection=params['def'])
+        randoms = generate_RandomCatalogue(len(data[q]['_RAJ2000']), params['nmult'], \
+                                            seed=999, milkyway_mask=True, deflection=params['def'])
         ra_random.append(randoms[0])
         dec_random.append(randoms[1])
+
     rcat = [treecorr.Catalog(ra=ra_random[q], dec=dec_random[q],
             ra_units='deg', dec_units='deg') for q in range(params['nquant'])]
 
+    # Calculate cross-correlations
     xi_bs, varxi_bs = [], []
     xi_true = np.zeros((params['nquant'], params['nbins']))
     for q in range(params['nquant']):
@@ -192,6 +239,11 @@ def crosscorrelations(data, events_a8, params, treecorr_config):
         varxi_bs.append(results[2])
         xi_true[q] = results[0]
     th = results[3]
+
+    if write_corr:
+        filecorr = get_filecorrname(params)
+        print(f'Writing cross-correlations to: {filecorr}')
+        np.savez(filecorr, xi_true=xi_true, xi_bs=xi_bs, varxi_bs=varxi_bs, th=th)
 
     return xi_true, xi_bs, varxi_bs, th, ra_random, dec_random
 
@@ -215,7 +267,7 @@ def write_results(filename, int_mean, int_std, quantiles):
     ascii.write(np.column_stack([int_mean, mean_mag, int_std]), filename,
                 names=['int_mean', 'meanMag', 'int_std'], overwrite=True)
 
-def get_quantiles(params, gxs):
+def get_quantiles_K(params, gxs):
 
     if params['nquant'] == 1:
         # If only one quantile, return the min and max of K_abs
@@ -232,7 +284,7 @@ def get_quantiles(params, gxs):
     else:
         raise ValueError(f"Unknown binning method: {params['bin_K']}")
     
-    print(f'Quantiles: {quantiles}')
+    print(f'K Quantiles: {quantiles}')
 
     return quantiles
     
@@ -256,7 +308,7 @@ def main():
     events_a8 = events_a8[mask_eve]
 
     # Read galaxy data
-    gxs = load_data(params['sample'], min_cz=1200, gclass=params['gclass'])
+    gxs = load_data(params['sample'], cz_min=params['cz_min'], cz_max=params['cz_max'], gclass=params['gclass'])
 
     # If deflection region is specified, select accordingly
     deflection_file = '../data/JF12_GMFdeflection_Z1_E10EeV.csv'
@@ -270,7 +322,7 @@ def main():
         elif params['bptagn'] == 1: gxs = gxs[gxs['BPTAGN'] == 1]
 
     # Define quantiles
-    quantiles = get_quantiles(params, gxs)
+    quantiles = get_quantiles_K(params, gxs)
 
     # Split sample into quantiles
     data = [gxs[(gxs['K_abs'] > quantiles[q]) & (gxs['K_abs'] < quantiles[q + 1])] for q in range(params['nquant'])]
