@@ -120,7 +120,54 @@ def generate_RandomCatalogue(N,nmult,dec_max,seed=None, milkyway_mask=True, defl
 
     return rand_ra_cut, rand_dec_cut 
 
-def get_xibs(data,nbootstrap,nbins,rcat,ecat,config,seed=None):
+def generate_CR_like_randoms(N, cr_events, milkyway_mask=True, deflection=None, deflection_file='../data/JF12_GMFdeflection_Z1_E10EeV.csv'):
+    from scipy.interpolate import interp1d
+    import numpy as np
+    from astropy.coordinates import SkyCoord
+    import astropy.units as u
+
+    """Generate random RA and Dec matching CR declination distribution."""
+    dec_vals = cr_events['dec']
+    #ra_vals = cr_events['RA']
+
+    # Empirical PDF of Dec
+    hist, bin_edges = np.histogram(dec_vals, bins=50, density=True)
+    bin_centers = 0.5 * (bin_edges[1:] + bin_edges[:-1])
+    cdf = np.cumsum(hist)
+    cdf /= cdf[-1]
+
+    # Inverse CDF
+    inv_cdf = interp1d(cdf, bin_centers, bounds_error=False, fill_value=(bin_centers[0], bin_centers[-1]))
+
+    # Sample
+    ra_rand = np.random.uniform(0, 360, N*10)
+    dec_rand = inv_cdf(np.random.uniform(0, 1, N*10))
+
+    #Eliminates points within 5° in galactic latitude
+    if milkyway_mask==True:
+        ran = SkyCoord(ra_rand,dec_rand,frame='icrs',unit='degree')
+        mask_ran = np.where([abs(ran.galactic.b)>5.*(u.degree)])[1]
+        ra_rand = ra_rand[mask_ran]
+        dec_rand = dec_rand[mask_ran]
+
+    # If deflection region is specified, select accordingly
+    if deflection == 'high' or deflection == 'low':
+        randoms = np.column_stack((ra_rand, dec_rand))
+        deflection_mask = apply_deflection_mask(deflection_file, randoms[:, 0], randoms[:, 1], deflection)
+        randoms = randoms[deflection_mask]
+        ra_rand = randoms[:, 0]
+        dec_rand = randoms[:, 1]
+
+    rand_ra_cut = ra_rand[:N]
+    rand_dec_cut = dec_rand[:N]
+
+    if len(rand_ra_cut) < N:
+        raise ValueError(f"Random catalogue size mismatch: expected {N}, got {len(rand_ra_cut)}")
+
+    print(rand_dec_cut.min(),rand_dec_cut.max())
+    return rand_ra_cut, rand_dec_cut
+
+def get_xibs(data,nbootstrap,nbins,rcat,rcat_auger,ecat,config,seed=None):
     import numpy as np
     import treecorr
 
@@ -132,8 +179,8 @@ def get_xibs(data,nbootstrap,nbins,rcat,ecat,config,seed=None):
     rr = treecorr.NNCorrelation(config)
     rd = treecorr.NNCorrelation(config)
 
-    rr.process(rcat)
-    rd.process(ecat,rcat)
+    rr.process(rcat,rcat_auger)
+    rd.process(rcat_auger,ecat)
     for n in range(nbootstrap):
         if seed!=None: np.random.seed(seed)
         elif seed==None: np.random.seed()
@@ -240,12 +287,13 @@ def skyplot(skyplotname, params, data, events_a8, ra_random, dec_random, quantil
 
     # Ensure axs is always iterable
     axs = np.array(axs).reshape(-1)
-
+    ran_sc = SkyCoord(ra_random, dec_random,frame='icrs',unit='degree')
+    
     for q, ax in zip(range(params['nquant']),axs):
         gxs_sc = SkyCoord(data[q]['_RAJ2000'],data[q]['_DEJ2000'],frame='icrs',unit='degree')
 
         eve_sc = SkyCoord(events_a8['RA'],events_a8['dec'],frame='icrs',unit='degree')
-        ran_sc = SkyCoord(ra_random[q], dec_random[q],frame='icrs',unit='degree')
+        #ran_sc = SkyCoord(ra_random[q], dec_random[q],frame='icrs',unit='degree')
 
         #ax = fig.add_subplot(111, projection="aitoff")
         ax.scatter(ran_sc.ra.wrap_at(180*u.degree).to(u.rad),ran_sc.dec.to(u.rad),s=3,c='k',label='Random Data')
@@ -358,18 +406,25 @@ def crosscorrelations(data, events_a8, params, treecorr_config, write_corr=True)
     for q in range(params['nquant']):
         randoms = generate_RandomCatalogue(len(data[q]['_RAJ2000']), params['nmult'], params['dec_max'],\
                                             seed=9999, milkyway_mask=True, deflection=params['def'])
+        
         ra_random.append(randoms[0])
         dec_random.append(randoms[1])
+
+    randoms_auger = generate_CR_like_randoms(len(events_a8)*1, events_a8, 
+                                             milkyway_mask=True, deflection=params['def'])
 
     rcat = [treecorr.Catalog(ra=ra_random[q], dec=dec_random[q],
             ra_units='deg', dec_units='deg') for q in range(params['nquant'])]
 
+    rcat_auger = treecorr.Catalog(ra=randoms_auger[0], dec=randoms_auger[1],
+            ra_units='deg', dec_units='deg')
+    
     # Calculate cross-correlations
     xi_bs, varxi_bs = [], []
     xi_true = np.zeros((params['nquant'], params['nbins']))
     for q in range(params['nquant']):
         print(f'{q + 1}/{params["nquant"]}')
-        results = get_xibs(data[q], params['nbootstrap'], params['nbins'], rcat[q], ecat, treecorr_config)
+        results = get_xibs(data[q], params['nbootstrap'], params['nbins'], rcat[q], rcat_auger, ecat, treecorr_config)
         xi_bs.append(results[1])
         varxi_bs.append(results[2])
         xi_true[q] = results[0]
@@ -380,7 +435,7 @@ def crosscorrelations(data, events_a8, params, treecorr_config, write_corr=True)
         print(f'Writing cross-correlations to: {filecorr}')
         np.savez(filecorr, xi_true=xi_true, xi_bs=xi_bs, varxi_bs=varxi_bs, th=th)
 
-    return xi_true, xi_bs, varxi_bs, th, ra_random, dec_random
+    return xi_true, xi_bs, varxi_bs, th, randoms_auger[0], randoms_auger[1] #ra_random, dec_random
 
 def integration(xi_true, xi_bs, th, params):
     int_results = [np.zeros(params['nbootstrap']) for _ in range(params['nquant'])]
@@ -441,7 +496,7 @@ def main():
     eve = SkyCoord(events_a8['RA'], events_a8['dec'], frame='icrs', unit='degree')
     mask_eve = np.where(abs(eve.galactic.b) > 5. * u.degree)[0]
     events_a8 = events_a8[mask_eve]
-    mask_eve = np.where(events_a8['dec']< 0.)[0]
+    mask_eve = np.where(events_a8['dec']< params['dec_max'])[0]
     events_a8 = events_a8[mask_eve]
 
     # Read galaxy data
