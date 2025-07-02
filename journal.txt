@@ -3,7 +3,10 @@ Ver I25 para class2/class3/agn
 
 Ver I25 para deflectantes/no deflectantes
 
-Chequear randoms para deflectantes y no deflectantes
+Chequear randoms para deflectantes y no deflectantes LISTO
 
-Ver autocorr de RC con randoms con dependencia en la dec
+Ver autocorr de RC con randoms con dependencia en la dec LISTO
 
+Prueba: reemplazar gxs por randoms, chequear que de 0. Luego chequear que siga dando cero por abajo y por arriba de aprox -20
+
+Si lo anterior no da cero en ambos casos: Imponer sobre datos una declinacion que siga el gradiente de los auger?
