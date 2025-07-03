@@ -61,6 +61,13 @@ def load_data(sample, dec_max, cz_min=1200, cz_max=None, gclass=None):
     data = ascii.read(filename_g)
     data = data[data['_DEJ2000'] < dec_max] # Cut declination
 
+    # _ra_rand = np.random.uniform(0, 360, len(data))
+    # _sin_dec = np.random.uniform(np.sin(np.radians(-90)), np.sin(np.radians(dec_max)), len(data))
+    # _dec_rand = np.degrees(np.arcsin(_sin_dec))
+
+    # data['_RAJ2000'] = _ra_rand
+    # data['_DEJ2000'] = _dec_rand
+
     # Cuts for 2MRS sample:
     if sample == 'all2MRS_noAGN':
         #data = data[data['_DEJ2000'] < dec_max] # Cut declination
@@ -144,11 +151,14 @@ def generate_CR_like_randoms(N, cr_events, milkyway_mask=True, deflection=None, 
         raise ValueError("clusters must be provided if cluster_mask is True")
 
     """Generate random RA and Dec matching CR declination distribution."""
-    dec_vals = cr_events['dec']
+    try:
+        dec_vals = cr_events['dec']
+    except KeyError:
+        dec_vals = cr_events['_DEJ2000']
     #ra_vals = cr_events['RA']
 
     # Empirical PDF of Dec
-    hist, bin_edges = np.histogram(dec_vals, bins=50, density=True)
+    hist, bin_edges = np.histogram(dec_vals, bins=20, density=True)
     bin_centers = 0.5 * (bin_edges[1:] + bin_edges[:-1])
     cdf = np.cumsum(hist)
     cdf /= cdf[-1]
@@ -310,13 +320,13 @@ def skyplot(skyplotname, params, data, events_a8, ra_random, dec_random, quantil
 
     # Ensure axs is always iterable
     axs = np.array(axs).reshape(-1)
-    ran_sc = SkyCoord(ra_random, dec_random,frame='icrs',unit='degree')
+    #ran_sc = SkyCoord(ra_random, dec_random,frame='icrs',unit='degree')
     
     for q, ax in zip(range(params['nquant']),axs):
 
         gxs_sc = SkyCoord(data[q]['_RAJ2000'],data[q]['_DEJ2000'],frame='icrs',unit='degree')
         eve_sc = SkyCoord(events_a8['RA'],events_a8['dec'],frame='icrs',unit='degree')
-        #ran_sc = SkyCoord(ra_random[q], dec_random[q],frame='icrs',unit='degree')
+        ran_sc = SkyCoord(ra_random[q], dec_random[q],frame='icrs',unit='degree')
 
         #ax = fig.add_subplot(111, projection="aitoff")
         ax.scatter(ran_sc.ra.wrap_at(180*u.degree).to(u.rad),ran_sc.dec.to(u.rad),s=1,c='k',label='Random Data')
@@ -431,12 +441,19 @@ def crosscorrelations(data, events_a8, params, treecorr_config, write_corr=True,
     ra_random = []
     dec_random = []
     for q in range(params['nquant']):
-        randoms = generate_RandomCatalogue(len(data[q]['_RAJ2000']), params['nmult'], params['dec_max'],\
-                                            seed=9999, milkyway_mask=True, deflection=params['def'], \
-                                                cluster_mask=params['cluster_mask'], clusters=clusters if params['cluster_mask'] else None)
+        randoms = generate_CR_like_randoms(len(data[q])*100, data[q], 
+                                                milkyway_mask=True, deflection=params['def'], \
+                                                    cluster_mask=params['cluster_mask'], clusters=clusters if params['cluster_mask'] else None)
         
         ra_random.append(randoms[0])
         dec_random.append(randoms[1])
+
+        plt.hist(data[q]['_DEJ2000'], bins=20, alpha=0.5, label='Gxs',density=True)
+        plt.hist(randoms[1], bins=20, alpha=0.5, label='Randoms',density=True)
+        plt.legend()
+        plt.savefig(f'../plots/hist_gxs_randoms_q{q}.png',dpi=300)
+        plt.close()
+
     rcat = [treecorr.Catalog(ra=ra_random[q], dec=dec_random[q],
             ra_units='deg', dec_units='deg') for q in range(params['nquant'])]
     
@@ -447,7 +464,8 @@ def crosscorrelations(data, events_a8, params, treecorr_config, write_corr=True,
     rcat_auger = treecorr.Catalog(ra=randoms_auger[0], dec=randoms_auger[1],
             ra_units='deg', dec_units='deg')
     
-    
+
+
     # Calculate cross-correlations
     xi_bs, varxi_bs = [], []
     xi_true = np.zeros((params['nquant'], params['nbins']))
@@ -621,7 +639,7 @@ def main():
 
     # Sky Plot
     if params['skyplot']:
-        skyplot(skyplotname, params, data, events_a8, ra_rand_auger, dec_rand_auger, quantiles, clusters=clusters if params['cluster_mask'] else None)
+        skyplot(skyplotname, params, data, events_a8, ra_rand_gxs, dec_rand_gxs, quantiles, clusters=clusters if params['cluster_mask'] else None)
 
     # Integration
     print('Integration')
