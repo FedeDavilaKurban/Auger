@@ -197,12 +197,12 @@ def get_xibs(data,nbootstrap,nbins,rcat,rcat_auger,ecat,config,seed=None):
     varxi_bs = np.zeros((nbootstrap,nbins))
 
     dd = treecorr.NNCorrelation(config)
-    #dr = treecorr.NNCorrelation(config)
+    dr = treecorr.NNCorrelation(config)
     rr = treecorr.NNCorrelation(config)
-    #rd = treecorr.NNCorrelation(config)
+    rd = treecorr.NNCorrelation(config)
 
-    #rr.process(rcat,rcat_auger)
-    #rd.process(rcat_auger,ecat)
+    rr.process(rcat,rcat_auger)
+    rd.process(ecat,rcat)
     for n in range(nbootstrap):
         if seed!=None: np.random.seed(seed)
         elif seed==None: np.random.seed()
@@ -211,8 +211,8 @@ def get_xibs(data,nbootstrap,nbins,rcat,rcat_auger,ecat,config,seed=None):
                                 ra_units='deg', dec_units='deg')
 
         dd.process(gcat,ecat)
-        #dr.process(gcat,rcat)
-        rr.process(gcat,rcat_auger) #Esto emularía el estimador DD/DR-1
+        dr.process(gcat,rcat_auger)
+        #rr.process(gcat,rcat_auger) #Esto emularía el estimador DD/DR-1
 
         xi_bs[n], varxi_bs[n] = dd.calculateXi(rr=rr)#,dr=dr,rd=rd)
 
@@ -367,6 +367,7 @@ def get_corrplotname(params):
     # Add czmax
     if params['cz_max'] is not None:
         corrplotname += f'_cz{int(params["cz_min"])}-{int(params["cz_max"])}'
+    corrplotname += f'_dec{int(params['dec_max'])}'
     # Add format
     corrplotname += '.png'
     print(f'Save correlation plots to: {corrplotname}')
@@ -384,6 +385,7 @@ def get_skyplotname(params):
     # Add czmax
     if params['cz_max'] is not None:
         skyplotname += f'_cz{int(params["cz_min"])}-{int(params["cz_max"])}'
+    skyplotname += f'_dec{int(params['dec_max'])}'
     # Add format
     skyplotname += '.png'
     print(f'Save sky coverage plots to: {skyplotname}')
@@ -401,6 +403,7 @@ def get_filename(params):
     # Add czmax
     if params['cz_max'] is not None:
         filename += f'_cz{int(params["cz_min"])}-{int(params["cz_max"])}'
+    filename += f'_dec{int(params['dec_max'])}'
     # Add format
     filename += '.npz'  
 
@@ -417,6 +420,7 @@ def get_filecorrname(params):
     # Add czmax
     if params['cz_max'] is not None:
         filecorrname += f'_cz{int(params["cz_min"])}-{int(params["cz_max"])}'
+    filecorrname += f'_dec{int(params['dec_max'])}'
     # Add format
     filecorrname += '.npz'
 
@@ -441,8 +445,11 @@ def crosscorrelations(data, events_a8, params, treecorr_config, write_corr=True,
             ra_units='deg', dec_units='deg') for q in range(params['nquant'])]
     
     # Generate randoms for Auger events
-    randoms_auger = generate_CR_like_randoms(len(events_a8)*50, events_a8, 
-                                             milkyway_mask=True, deflection=params['def'], \
+    # randoms_auger = generate_CR_like_randoms(len(events_a8)*50, events_a8, 
+    #                                          milkyway_mask=True, deflection=params['def'], \
+    #                                             cluster_mask=params['cluster_mask'], clusters=clusters if params['cluster_mask'] else None)
+    randoms_auger = generate_RandomCatalogue(len(events_a8), 20, params['dec_max'],\
+                                              seed=9999, milkyway_mask=True, deflection=params['def'], \
                                                 cluster_mask=params['cluster_mask'], clusters=clusters if params['cluster_mask'] else None)
     rcat_auger = treecorr.Catalog(ra=randoms_auger[0], dec=randoms_auger[1],
             ra_units='deg', dec_units='deg')
