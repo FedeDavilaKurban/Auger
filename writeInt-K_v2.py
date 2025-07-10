@@ -1,15 +1,6 @@
-import numpy as np
-from astropy.io import ascii
-from astropy.coordinates import SkyCoord
-import astropy.units as u
-#from auger_tools import generate_RandomCatalogue, get_xibs, apply_deflection_mask
-import configparser
-import treecorr
-import matplotlib.pyplot as plt
-from matplotlib.ticker import FormatStrFormatter
-from scipy import integrate, stats
-
 def read_config(config_file):
+    import configparser
+
     """Read and parse the configuration file."""
     config = configparser.ConfigParser()
     config.read(config_file)
@@ -28,12 +19,15 @@ def read_config(config_file):
         'bptagn': config.getint('Parameters', 'bptagn'),
         'bin_K': config.get('Parameters', 'bin_K'),
         'def_thresh': config.getfloat('Parameters', 'def_thresh'),
-        'def': config.get('Parameters', 'def'),
+        'deflection': config.get('Parameters', 'deflection'),
         'bin_type': config.get('Parameters', 'bin_type'),
         'skyplot': config.getboolean('Parameters', 'skyplot'),
         'cz_min': config.getfloat('Parameters', 'cz_min'),
-        #'cz_max': config.getint('Parameters', 'cz_max')
+        'dec_min': config.getfloat('Parameters', 'dec_min'),
         'dec_max': config.getfloat('Parameters', 'dec_max'),
+        'deflection_file': config.get('Parameters', 'deflection_file'),
+        'cluster_file': config.get('Parameters', 'cluster_file'),
+        'milkyway_mask': config.getboolean('Parameters', 'milkyway_mask'),
         'cluster_mask': config.getboolean('Parameters', 'cluster_mask')
     }
 
@@ -44,6 +38,8 @@ def read_config(config_file):
     return params
 
 def load_data(sample, dec_max, cz_min=1200, cz_max=None, gclass=None):
+    from astropy.io import ascii
+
     """Load data based on the sample type."""
     if sample == '700control':
         filename_g = '../data/VLS_ang5_cz_700control_def.txt'
@@ -80,71 +76,72 @@ def load_data(sample, dec_max, cz_min=1200, cz_max=None, gclass=None):
 
     return data
 
-def generate_RandomCatalogue(N,nmult,dec_max,seed=None, milkyway_mask=True, deflection=None, cluster_mask=False, clusters=None, \
-                             deflection_file='../data/JF12_GMFdeflection_Z1_E10EeV.csv'):
+def generate_RandomCatalogue(N, params, gxs_dec=None, seed=None, nmult=None):
     import numpy as np
-    from astropy.coordinates import SkyCoord
-    import astropy.units as u
+    from scipy.optimize import curve_fit
+
+    if seed is not None:
+        np.random.seed(seed)
+
+    if nmult is None:
+        nmult = params['nmult']
     
-    if cluster_mask and clusters is None:
-        raise ValueError("clusters must be provided if cluster_mask is True")
+    dec_min = params['dec_min']
+    dec_max = params['dec_max']
+    N_total = N * nmult
+
+    if gxs_dec is None:
+        # Default to uniform sin(dec) distribution
+        rand_ra = np.random.uniform(0, 360, N_total)
+        rand_sindec = np.random.uniform(
+            np.sin(np.radians(dec_min)), np.sin(np.radians(dec_max)), N_total
+        )
+        rand_dec = np.degrees(np.arcsin(rand_sindec))
+        return rand_ra, rand_dec
+
+    # --- Fit a parabola to the declination histogram ---
+    hist, bin_edges = np.histogram(gxs_dec, bins=60, density=True)
+    bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+
+    def parabola(x, a, b, c):
+        return a * x**2 + b * x + c
+
+    popt, _ = curve_fit(parabola, bin_centers, hist)
+
+    # Normalize parabola to form a proper PDF
+    x_vals = np.linspace(dec_min, dec_max, 1000)
+    pdf_vals = parabola(x_vals, *popt)
+    pdf_vals = np.clip(pdf_vals, 0, None)  # avoid negatives
+    norm = np.trapz(pdf_vals, x_vals)
+    pdf_vals /= norm
+
+    # Compute CDF
+    cdf_vals = np.cumsum(pdf_vals)
+    cdf_vals /= cdf_vals[-1]
     
-    if seed!=None: np.random.seed(seed)
+    # Inverse CDF interpolation
+    from scipy.interpolate import interp1d
+    inv_cdf = interp1d(cdf_vals, x_vals, bounds_error=False, fill_value=(x_vals[0], x_vals[-1]))
 
-    ra_min = 0.
-    ra_max = 360
-    dec_min = -90.
-    dec_max = dec_max
+    # Sample declination using inverse CDF
+    u = np.random.uniform(0, 1, N_total)
+    rand_dec = inv_cdf(u)
 
-    rand_ra = np.random.uniform(ra_min, ra_max, N*nmult*100)
-    rand_sindec = np.random.uniform(np.sin(dec_min*np.pi/180.), np.sin(dec_max*np.pi/180.), \
-                                    N*nmult*100)
-    rand_dec = np.arcsin(rand_sindec)*180./np.pi
+    # Sample RA uniformly
+    rand_ra = np.random.uniform(0, 360, N_total)
 
-    #Eliminates points within 5° in galactic latitude
-    if milkyway_mask==True:
-        ran = SkyCoord(rand_ra,rand_dec,frame='icrs',unit='degree')
-        mask_ran = np.where([abs(ran.galactic.b)>5.*(u.degree)])[1]
-        rand_ra = rand_ra[mask_ran]
-        rand_dec = rand_dec[mask_ran]
+    return rand_ra, rand_dec
 
-    # If deflection region is specified, select accordingly
-    if deflection == 'high' or deflection == 'low':
-        randoms = np.column_stack((rand_ra, rand_dec))
-        deflection_mask = apply_deflection_mask(deflection_file, randoms[:, 0], randoms[:, 1], deflection)
-        randoms = randoms[deflection_mask]
-        rand_ra = randoms[:, 0]
-        rand_dec = randoms[:, 1]
 
-    # If cluster mask is specified, apply it
-    if cluster_mask:
-        mask_ran = mask_around_clusters(rand_ra, rand_dec, clusters)
-        rand_ra = rand_ra[mask_ran]
-        rand_dec = rand_dec[mask_ran]
-
-    rand_ra_cut = rand_ra[:N*nmult]
-    rand_dec_cut = rand_dec[:N*nmult]
-
-    # Check if the size of the random catalogue matches the expected size
-    if rand_ra_cut.size != N*nmult:
-        raise ValueError(f"Random catalogue size mismatch: expected {N*nmult}, got {rand_ra_cut.size}")
-
-    return rand_ra_cut, rand_dec_cut 
-
-def generate_CR_like_randoms(N, cr_events, milkyway_mask=True, deflection=None, cluster_mask=False, clusters=None,\
-                             deflection_file='../data/JF12_GMFdeflection_Z1_E10EeV.csv'):
+def generate_CR_like_randoms(N, nmult, cr_events):
     
     from scipy.interpolate import interp1d
     import numpy as np
     from astropy.coordinates import SkyCoord
     import astropy.units as u
 
-    if cluster_mask and clusters is None:
-        raise ValueError("clusters must be provided if cluster_mask is True")
-
     """Generate random RA and Dec matching CR declination distribution."""
     dec_vals = cr_events['dec']
-    #ra_vals = cr_events['RA']
 
     # Empirical PDF of Dec
     hist, bin_edges = np.histogram(dec_vals, bins=50, density=True)
@@ -156,105 +153,25 @@ def generate_CR_like_randoms(N, cr_events, milkyway_mask=True, deflection=None, 
     inv_cdf = interp1d(cdf, bin_centers, bounds_error=False, fill_value=(bin_centers[0], bin_centers[-1]))
 
     # Sample
-    ra_rand = np.random.uniform(0, 360, N*10)
-    dec_rand = inv_cdf(np.random.uniform(0, 1, N*10))
+    ra_rand = np.random.uniform(0, 360, N*nmult)
+    dec_rand = inv_cdf(np.random.uniform(0, 1, N*nmult))
 
-    #Eliminates points within 5° in galactic latitude
-    if milkyway_mask==True:
-        ran = SkyCoord(ra_rand,dec_rand,frame='icrs',unit='degree')
-        mask_ran = np.where([abs(ran.galactic.b)>5.*(u.degree)])[1]
-        ra_rand = ra_rand[mask_ran]
-        dec_rand = dec_rand[mask_ran]
+    return ra_rand, dec_rand
 
-    # If deflection region is specified, select accordingly
-    if deflection == 'high' or deflection == 'low':
-        randoms = np.column_stack((ra_rand, dec_rand))
-        deflection_mask = apply_deflection_mask(deflection_file, randoms[:, 0], randoms[:, 1], deflection)
-        randoms = randoms[deflection_mask]
-        ra_rand = randoms[:, 0]
-        dec_rand = randoms[:, 1]
-
-    # If cluster mask is specified, apply it
-    if cluster_mask:
-        mask_ran = mask_around_clusters(ra_rand, dec_rand, clusters)
-        ra_rand = ra_rand[mask_ran]
-        dec_rand = dec_rand[mask_ran]
-
-    rand_ra_cut = ra_rand[:N]
-    rand_dec_cut = dec_rand[:N]
-
-    if len(rand_ra_cut) < N:
-        raise ValueError(f"Random catalogue size mismatch: expected {N}, got {len(rand_ra_cut)}")
-
-    return rand_ra_cut, rand_dec_cut
-
-def get_xibs(data,nbootstrap,nbins,rcat,rcat_auger,ecat,config,seed=None):
+def get_milkyway_mask(ra, dec):
     import numpy as np
-    import treecorr
+    from astropy.coordinates import SkyCoord
+    import astropy.units as u
 
-    xi_bs = np.zeros((nbootstrap,nbins))
-    varxi_bs = np.zeros((nbootstrap,nbins))
+    """Apply a mask to eliminate points within 5° in galactic latitude."""
+    ran = SkyCoord(ra, dec, frame='icrs',unit='degree')
+    mask = np.where([abs(ran.galactic.b)>5.*(u.degree)])[1]
+    return mask
 
-    dd = treecorr.NNCorrelation(config)
-    dr = treecorr.NNCorrelation(config)
-    rr = treecorr.NNCorrelation(config)
-    rd = treecorr.NNCorrelation(config)
-
-    rr.process(rcat,rcat_auger)
-    rd.process(ecat,rcat)
-    for n in range(nbootstrap):
-        if seed!=None: np.random.seed(seed)
-        elif seed==None: np.random.seed()
-        databs = np.random.choice(data,size=len(data))
-        gcat = treecorr.Catalog(ra=databs['_RAJ2000'], dec=databs['_DEJ2000'],\
-                                ra_units='deg', dec_units='deg')
-
-        dd.process(gcat,ecat)
-        dr.process(gcat,rcat_auger)
-        #rr.process(gcat,rcat_auger) #Esto emularía el estimador DD/DR-1
-
-        xi_bs[n], varxi_bs[n] = dd.calculateXi(rr=rr,dr=dr,rd=rd)
-
-    # Calculate the true correlation function
-    gcat = treecorr.Catalog(ra=data['_RAJ2000'], dec=data['_DEJ2000'],\
-                                ra_units='deg', dec_units='deg')
-    dd.process(gcat,ecat)
-    dr.process(gcat,rcat_auger)
-    xi_true = dd.calculateXi(rr=rr, dr=dr, rd=rd)[0]
-    return xi_true, xi_bs, varxi_bs, dd.meanr
-
-def get_xibs_auto(data,RAcol,DECcol,nbootstrap,nbins,rcat,config):
-    import numpy as np
-    import treecorr
-
-    xi_bs = np.zeros((nbootstrap,nbins))
-    varxi_bs = np.zeros((nbootstrap,nbins))
-    theta_ = np.zeros((nbootstrap,nbins))
-
-    dd = treecorr.NNCorrelation(config)
-    dr = treecorr.NNCorrelation(config)
-    rr = treecorr.NNCorrelation(config)
-
-    for n in range(nbootstrap):
-        databs = np.random.choice(data,size=len(data))
-        gcat = treecorr.Catalog(ra=databs[RAcol], dec=databs[DECcol],\
-                                ra_units='deg', dec_units='deg')
-
-        rr.process(rcat)
-        dd.process(gcat)
-        dr.process(gcat,rcat)
-
-        xi_bs[n], varxi_bs[n] = dd.calculateXi(rr=rr,dr=dr)
-        theta_[n] = dd.meanr
-
-    xi_mean = xi_bs.mean(axis=0)
-    varxi = varxi_bs.mean(axis=0)
-    theta = theta_.mean(axis=0)
-    return xi_mean, varxi, theta
-
-def apply_deflection_mask(defl_file, ra_deg, dec_deg, deflection):
+def get_deflection_mask(defl_file, ra_deg, dec_deg, deflection):
     import numpy as np
     import healpy as hp
+
 
     # === Load/prepare deflection map ===
     data = np.loadtxt(defl_file, delimiter=',', skiprows=1)
@@ -281,8 +198,41 @@ def apply_deflection_mask(defl_file, ra_deg, dec_deg, deflection):
     pix = hp.ang2pix(nside, theta, phi)
     return deflection_mask[pix]
 
+def get_cluster_mask(cat_ra, cat_dec, clusters, factor=4.0):
+    """
+    Mask out sources within factor × R500 angular radius of each cluster.
+    
+    Parameters:
+    - cat_ra, cat_dec: arrays of RA/Dec in degrees
+    - clusters: astropy table with RAJ2000, DEJ2000 (degrees), z (unitless), R500 (in Mpc)
+    - factor: multiplier for the angular exclusion radius (e.g., 2 × R500)
+    
+    Returns:
+    - mask: boolean array (True = keep, False = exclude)
+    """
+    from astropy.cosmology import Planck15 as cosmo
+    from astropy.coordinates import SkyCoord
+    import astropy.units as u
+
+    coords = SkyCoord(ra=cat_ra*u.deg, dec=cat_dec*u.deg)
+    mask = np.ones(len(cat_ra), dtype=bool)
+
+    for cluster in clusters:
+        z = cluster['z']
+        r500_mpc = cluster['R500']
+        ang_rad = np.arctan((factor * r500_mpc * u.Mpc / cosmo.angular_diameter_distance(z)).decompose())
+        c_coord = SkyCoord(ra=cluster['RAJ2000']*u.deg, dec=cluster['DEJ2000']*u.deg)
+        sep = coords.separation(c_coord)
+        mask &= sep.radian > ang_rad.value 
+
+    return mask
 
 def skyplot(skyplotname, params, data, events_a8, ra_random, dec_random, quantiles, clusters=None):
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from astropy.coordinates import SkyCoord
+    import astropy.units as u
+
 
     def format_axes(ax):
         """Format axes with RA in hours and Dec in degrees."""
@@ -335,6 +285,10 @@ def skyplot(skyplotname, params, data, events_a8, ra_random, dec_random, quantil
     plt.savefig(skyplotname)
 
 def correlation_plot(corrplotname, params, th, xi_true, xi_bs, varxi_bs, quantiles):
+    import matplotlib.pyplot as plt 
+    from matplotlib.ticker import FormatStrFormatter
+    import numpy as np
+
     print('Plotting correlations')
     fig, ax = plt.subplots()
 
@@ -361,8 +315,8 @@ def get_corrplotname(params):
     if params['gclass'] == 2: corrplotname+=f'class{params['gclass']}'
     elif params['gclass'] == 3: corrplotname+=f'class{params['gclass']}'
     # Add deflection
-    if params['def'] == 'low': corrplotname+=f'_def{params['def']}{int(params['def_thresh'])}'
-    elif params['def'] == 'high': corrplotname+=f'_def{params['def']}{int(params['def_thresh'])}'
+    if params['deflection'] == 'low': corrplotname+=f'_def{params['deflection']}{int(params['def_thresh'])}'
+    elif params['deflection'] == 'high': corrplotname+=f'_def{params['deflection']}{int(params['def_thresh'])}'
     # Add czmax
     if params['cz_max'] is not None:
         corrplotname += f'_cz{int(params["cz_min"])}-{int(params["cz_max"])}'
@@ -379,8 +333,8 @@ def get_skyplotname(params):
     if params['gclass'] == 2: skyplotname+=f'class{params['gclass']}'
     elif params['gclass'] == 3: skyplotname+=f'class{params['gclass']}'
     # Add deflection
-    if params['def'] == 'low': skyplotname+=f'_def{params['def']}{int(params['def_thresh'])}'
-    elif params['def'] == 'high': skyplotname+=f'_def{params['def']}{int(params['def_thresh'])}'
+    if params['deflection'] == 'low': skyplotname+=f'_def{params['deflection']}{int(params['def_thresh'])}'
+    elif params['deflection'] == 'high': skyplotname+=f'_def{params['deflection']}{int(params['def_thresh'])}'
     # Add czmax
     if params['cz_max'] is not None:
         skyplotname += f'_cz{int(params["cz_min"])}-{int(params["cz_max"])}'
@@ -397,8 +351,8 @@ def get_filename(params):
     if params['gclass'] == 2: filename+=f'class{params['gclass']}'
     elif params['gclass'] == 3: filename+=f'class{params['gclass']}'
     # Add deflection
-    if params['def'] == 'low': filename+=f'_def{params['def']}{int(params['def_thresh'])}'
-    elif params['def'] == 'high': filename+=f'_def{params['def']}{int(params['def_thresh'])}'
+    if params['deflection'] == 'low': filename+=f'_def{params['deflection']}{int(params['def_thresh'])}'
+    elif params['deflection'] == 'high': filename+=f'_def{params['deflection']}{int(params['def_thresh'])}'
     # Add czmax
     if params['cz_max'] is not None:
         filename += f'_cz{int(params["cz_min"])}-{int(params["cz_max"])}'
@@ -414,8 +368,8 @@ def get_filecorrname(params):
     if params['gclass'] == 2: filecorrname+=f'class{params["gclass"]}'
     elif params['gclass'] == 3: filecorrname+=f'class{params["gclass"]}'
     # Add deflection
-    if params['def'] == 'low': filecorrname+=f'_def{params["def"]}{int(params["def_thresh"])}'
-    elif params['def'] == 'high': filecorrname+=f'_def{params["def"]}{int(params["def_thresh"])}'
+    if params['deflection'] == 'low': filecorrname+=f'_def{params["def"]}{int(params["def_thresh"])}'
+    elif params['deflection'] == 'high': filecorrname+=f'_def{params["def"]}{int(params["def_thresh"])}'
     # Add czmax
     if params['cz_max'] is not None:
         filecorrname += f'_cz{int(params["cz_min"])}-{int(params["cz_max"])}'
@@ -425,49 +379,64 @@ def get_filecorrname(params):
 
     return filecorrname
 
-def crosscorrelations(data, events_a8, params, treecorr_config, write_corr=True, clusters=None):
-    # Read UHECR data
+def get_xibs(data,nbootstrap,nbins,rcat,rcat_auger,ecat,config,seed=None):
+    import numpy as np
+    import treecorr
+
+    xi_bs = np.zeros((nbootstrap,nbins))
+    varxi_bs = np.zeros((nbootstrap,nbins))
+
+    dd = treecorr.NNCorrelation(config)
+    dr = treecorr.NNCorrelation(config)
+    rr = treecorr.NNCorrelation(config)
+    rd = treecorr.NNCorrelation(config)
+
+    rr.process(rcat,rcat_auger)
+    rd.process(ecat,rcat)
+    for n in range(nbootstrap):
+        if seed!=None: np.random.seed(seed)
+        elif seed==None: np.random.seed()
+        databs = np.random.choice(data,size=len(data))
+        # D1 Catalogue
+        gcat = treecorr.Catalog(ra=databs['_RAJ2000'], dec=databs['_DEJ2000'],\
+                                ra_units='deg', dec_units='deg')
+
+        dd.process(gcat,ecat)
+        dr.process(gcat,rcat_auger)
+        #rr.process(gcat,rcat_auger) #Esto emularía el estimador DD/DR-1
+
+        xi_bs[n], varxi_bs[n] = dd.calculateXi(rr=rr,dr=dr,rd=rd)
+
+    # Calculate the true correlation function
+    gcat = treecorr.Catalog(ra=data['_RAJ2000'], dec=data['_DEJ2000'],\
+                                ra_units='deg', dec_units='deg')
+    dd.process(gcat,ecat)
+    dr.process(gcat,rcat_auger)
+    xi_true = dd.calculateXi(rr=rr, dr=dr, rd=rd)[0]
+    return xi_true, xi_bs, varxi_bs, dd.meanr
+
+def crosscorrelations(data, events_a8, randoms_gxs, randoms_auger, params, treecorr_config, write_corr=True, clusters=None):
+    import numpy as np
+    import treecorr
+    import matplotlib.pyplot as plt 
+
+    # D2 Catalogue
     ecat = treecorr.Catalog(ra=events_a8['RA'], dec=events_a8['dec'], ra_units='deg', dec_units='deg')
 
-    # Generate random catalogue
-    #seeds = np.linspace(1000,1+params['nquant']-1,params['nquant'],dtype=int)
-    ra_random = []
-    dec_random = []
-    for q in range(params['nquant']):
-        randoms = generate_RandomCatalogue(len(data[q]['_RAJ2000']), params['nmult'], params['dec_max'],\
-                                            seed=9999, milkyway_mask=True, deflection=params['def'], \
-                                                cluster_mask=params['cluster_mask'], clusters=clusters if params['cluster_mask'] else None)
-        
-        ra_random.append(randoms[0])
-        dec_random.append(randoms[1])
-    rcat = [treecorr.Catalog(ra=ra_random[q], dec=dec_random[q],
-            ra_units='deg', dec_units='deg') for q in range(params['nquant'])]
+    # R1 Catalogue
+    rcat = treecorr.Catalog(ra=randoms_gxs[0], dec=randoms_gxs[1],
+            ra_units='deg', dec_units='deg')
     
-    # Generate randoms for Auger events
-    # randoms_auger = generate_CR_like_randoms(len(events_a8)*20, events_a8, 
-    #                                          milkyway_mask=True, deflection=params['def'], \
-    #                                             cluster_mask=params['cluster_mask'], clusters=clusters if params['cluster_mask'] else None)
-    randoms_auger = generate_RandomCatalogue(len(events_a8), 20, params['dec_max'],\
-                                              seed=9999, milkyway_mask=True, deflection=params['def'], \
-                                                cluster_mask=params['cluster_mask'], clusters=clusters if params['cluster_mask'] else None)
+    # R2 Catalogue
     rcat_auger = treecorr.Catalog(ra=randoms_auger[0], dec=randoms_auger[1],
             ra_units='deg', dec_units='deg')
     
-    
-    plt.hist(events_a8['dec'], bins=50, alpha=0.5, density=True, label='UHECRs')
-    plt.hist(dec_random[-1], bins=50, alpha=0.5, density=True, label='Random for Galaxies')
-    plt.hist(randoms_auger[1], bins=50, alpha=0.5, density=True, label='Random for UHECRs')
-    plt.legend()
-    plt.xlabel('Dec (degrees)')
-    plt.savefig('../plots/randoms_dec_hist.png')
-    plt.close()
-
     # Calculate cross-correlations
     xi_bs, varxi_bs = [], []
     xi_true = np.zeros((params['nquant'], params['nbins']))
     for q in range(params['nquant']):
         print(f'{q + 1}/{params["nquant"]}')
-        results = get_xibs(data[q], params['nbootstrap'], params['nbins'], rcat[q], rcat_auger, ecat, treecorr_config)
+        results = get_xibs(data[q], params['nbootstrap'], params['nbins'], rcat, rcat_auger, ecat, treecorr_config)
         xi_bs.append(results[1])
         varxi_bs.append(results[2])
         xi_true[q] = results[0]
@@ -478,9 +447,12 @@ def crosscorrelations(data, events_a8, params, treecorr_config, write_corr=True,
         print(f'Writing cross-correlations to: {filecorr}')
         np.savez(filecorr, xi_true=xi_true, xi_bs=xi_bs, varxi_bs=varxi_bs, th=th)
 
-    return xi_true, xi_bs, varxi_bs, th, randoms_auger[0], randoms_auger[1], ra_random, dec_random
+    return xi_true, xi_bs, varxi_bs, th, randoms_auger[0], randoms_auger[1], randoms_gxs[0], randoms_gxs[1]
 
 def integration(xi_true, xi_bs, th, params):
+    import numpy as np
+    from scipy import integrate
+
     int_results = [np.zeros(params['nbootstrap']) for _ in range(params['nquant'])]
     int_mean = np.zeros(params['nquant'])
     for q in range(params['nquant']):
@@ -494,13 +466,19 @@ def integration(xi_true, xi_bs, th, params):
     return int_mean, int_std
 
 def write_results(filename, int_mean, int_std, quantiles):
+    import numpy as np
+    from astropy.io import ascii
+
     print(f'Writing results in: {filename}')
 
     mean_mag = np.array([(quantiles[i]+quantiles[i+1])/2. for i in range(len(quantiles)-1)])
     ascii.write(np.column_stack([int_mean, mean_mag, int_std]), filename,
                 names=['int_mean', 'meanMag', 'int_std'], overwrite=True)
 
-def get_quantiles_K(params, gxs):
+def get_quantiles_K(params, gxs):    
+    """Define quantiles for K_abs based on the parameters."""
+
+    import numpy as np
 
     if params['nquant'] == 1:
         # If only one quantile, return the min and max of K_abs
@@ -521,36 +499,19 @@ def get_quantiles_K(params, gxs):
 
     return quantiles
 
-def mask_around_clusters(cat_ra, cat_dec, clusters, factor=4.0):
-    """
-    Mask out sources within factor × R500 angular radius of each cluster.
-    
-    Parameters:
-    - cat_ra, cat_dec: arrays of RA/Dec in degrees
-    - clusters: astropy table with RAJ2000, DEJ2000 (degrees), z (unitless), R500 (in Mpc)
-    - factor: multiplier for the angular exclusion radius (e.g., 2 × R500)
-    
-    Returns:
-    - mask: boolean array (True = keep, False = exclude)
-    """
-    from astropy.cosmology import Planck15 as cosmo
+def main():
+
+    import numpy as np
+    from astropy.io import ascii
     from astropy.coordinates import SkyCoord
     import astropy.units as u
+    import configparser
+    import treecorr
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import FormatStrFormatter
+    from scipy import integrate, stats
+    import healpy as hp
 
-    coords = SkyCoord(ra=cat_ra*u.deg, dec=cat_dec*u.deg)
-    mask = np.ones(len(cat_ra), dtype=bool)
-
-    for cluster in clusters:
-        z = cluster['z']
-        r500_mpc = cluster['R500']
-        ang_rad = np.arctan((factor * r500_mpc * u.Mpc / cosmo.angular_diameter_distance(z)).decompose())
-        c_coord = SkyCoord(ra=cluster['RAJ2000']*u.deg, dec=cluster['DEJ2000']*u.deg)
-        sep = coords.separation(c_coord)
-        mask &= sep.radian > ang_rad.value 
-
-    return mask
-
-def main():
     print('Reading files')
     params = read_config('cross+int.ini')
     treecorr_config = {
@@ -569,46 +530,96 @@ def main():
     
     # Read UHECR data
     events_a8 = ascii.read('../data/Auger/events_a8_lb.dat')
-    eve = SkyCoord(events_a8['RA'], events_a8['dec'], frame='icrs', unit='degree')
-    mask_eve = np.where(abs(eve.galactic.b) > 5. * u.degree)[0]
-    events_a8 = events_a8[mask_eve]
-    mask_eve = np.where(events_a8['dec']< params['dec_max'])[0]
-    events_a8 = events_a8[mask_eve]
+    events_a8 = events_a8[events_a8['dec'] < params['dec_max']] # Cut declination
+    print('Auger events:', len(events_a8))
 
     # Read galaxy data
-    gxs = load_data(params['sample'], params['dec_max'], cz_min=params['cz_min'], cz_max=params['cz_max'], gclass=params['gclass'])
-
-    # Read Local Clusters file
-    if params['cluster_mask']:
-        local_clusters_file = '../data/Local_Clusters_z0.055.txt'
-        print('Reading Local Clusters file:', local_clusters_file)
-        clusters = ascii.read(local_clusters_file)
-        clusters = clusters[clusters['DEJ2000'] < params['dec_max']]  # Cut declination
-        clusters = clusters[(clusters['z']*3e5 > params['cz_min']) & (clusters['z']*3e5 < params['cz_max'])]
-
-        # Apply mask to galaxies
-        gxs_mask = mask_around_clusters(gxs['_RAJ2000'], gxs['_DEJ2000'], clusters)
-        gxs = gxs[gxs_mask]
-
-        # Apply mask to UHECRs
-        eve_mask = mask_around_clusters(events_a8['RA'], events_a8['dec'], clusters)
-        events_a8 = events_a8[eve_mask]
-
-
-
-    # If deflection region is specified, select accordingly
-    deflection_file = '../data/JF12_GMFdeflection_Z1_E10EeV.csv'
-    if params['def'] == 'high' or params['def'] == 'low':
-        gxs = gxs[apply_deflection_mask(deflection_file, gxs['_RAJ2000'], gxs['_DEJ2000'], params['def'])]
-        events_a8 = events_a8[apply_deflection_mask(deflection_file, events_a8['RA'], events_a8['dec'], params['def'])]
-        if params['cluster_mask']:
-            clusters = clusters[apply_deflection_mask(deflection_file, clusters['RAJ2000'], clusters['DEJ2000'], params['def'])]
-
-    # Read AGN type
-    if params['sample'] == 'agn':
+    gxs = load_data(params['sample'], params['dec_max'], cz_min=params['cz_min'], cz_max=params['cz_max'], gclass=params['gclass']) # Cuts in dec and cz
+    if params['sample'] == 'agn': # Read BPTAGN type
         if params['bptagn'] == 0: gxs = gxs[gxs['BPTAGN'] == 0]
         elif params['bptagn'] == 1: gxs = gxs[gxs['BPTAGN'] == 1]
+    print('Galaxies:', len(gxs))
 
+    # Generate Random Catalogues
+    print('Generating random catalogues')
+    randoms_gxs = generate_RandomCatalogue(len(gxs), params, gxs_dec=gxs['_DEJ2000']) 
+    randoms_auger = generate_RandomCatalogue(len(events_a8), params, nmult = 10, gxs_dec=events_a8['dec'])  # Generate randoms for Auger events
+    #randoms_auger = generate_CR_like_randoms(len(events_a8), 20, events_a8)
+    randoms_auger = np.array(randoms_auger)  # Ensure it's a 2D array
+    randoms_gxs = np.array(randoms_gxs)  # Ensure it's a 2D array
+
+    print('Random galaxies:', len(randoms_gxs[0]))
+    print('Random Auger:', len(randoms_auger[0]))
+
+    # Plot Declinations
+    plt.hist(events_a8['dec'], bins=50, alpha=0.5, density=True, label='UHECRs')
+    plt.hist(gxs['_DEJ2000'], bins=50, alpha=0.5, density=True, label='Galaxies')
+    plt.hist(randoms_gxs[1], bins=50, alpha=0.5, density=True, histtype='step', label='Random for Galaxies')
+    plt.hist(randoms_auger[1], bins=50, alpha=0.5, density=True, histtype='step', label='Random for UHECRs')
+    plt.legend()
+    plt.xlabel('Dec (degrees)')
+    plt.savefig(f'../plots/dec_hist_premasks_cz{int(params['cz_min'])}-{int(params['cz_max'])}.png')
+    plt.close()
+
+    # Apply masks
+    print('Applying masks')
+    print('Milky Way mask:', params['milkyway_mask'])
+    print('Deflection:', params['deflection'])
+    print('Cluster mask:', params['cluster_mask'])
+
+    if params['milkyway_mask']:
+        milkyway_mask_gxs = get_milkyway_mask(gxs['_RAJ2000'], gxs['_DEJ2000'])
+        gxs = gxs[milkyway_mask_gxs]
+        
+        milkyway_mask_eve = get_milkyway_mask(events_a8['RA'], events_a8['dec'])
+        events_a8 = events_a8[milkyway_mask_eve]
+
+        milkyway_mask_rand_gxs = get_milkyway_mask(randoms_gxs[0], randoms_gxs[1])
+        randoms_gxs = randoms_gxs[0][milkyway_mask_rand_gxs], randoms_gxs[1][milkyway_mask_rand_gxs]
+
+        milkyway_mask_rand_auger = get_milkyway_mask(randoms_auger[0], randoms_auger[1])    
+        randoms_auger = randoms_auger[0][milkyway_mask_rand_auger], randoms_auger[1][milkyway_mask_rand_auger]
+
+
+    if params['deflection'] == 'high' or params['deflection'] == 'low':
+        deflection_mask_gxs = get_deflection_mask(params['deflection_file'], gxs['_RAJ2000'], gxs['_DEJ2000'], params['deflection'])
+        gxs = gxs[deflection_mask_gxs]
+
+        deflection_mask_eve = get_deflection_mask(params['deflection_file'], events_a8['RA'], events_a8['dec'], params['deflection'])
+        events_a8 = events_a8[deflection_mask_eve]
+
+        deflection_mask_rand_gxs = get_deflection_mask(params['deflection_file'], randoms_gxs[0], randoms_gxs[1], params['deflection'])
+        randoms_gxs = randoms_gxs[deflection_mask_rand_gxs]
+
+        deflection_mask_rand_auger = get_deflection_mask(params['deflection_file'], randoms_auger[0], randoms_auger[1], params['deflection'])
+        randoms_auger = randoms_auger[deflection_mask_rand_auger]
+
+
+    # If cluster mask is specified, apply it
+    if params['cluster_mask']:
+        clusters = ascii.read(params['cluster_file'])
+
+        cluster_mask_gxs = get_cluster_mask(gxs['_RAJ2000'], gxs['_DEJ2000'], clusters)
+        gxs = gxs[cluster_mask_gxs]
+
+        cluster_mask_eve = get_cluster_mask(events_a8['RA'], events_a8['dec'], clusters)
+        events_a8 = events_a8[cluster_mask_eve]
+
+        cluster_mask_rand_gxs = get_cluster_mask(randoms_gxs[0], randoms_gxs[1], clusters)
+        randoms_gxs = randoms_gxs[cluster_mask_rand_gxs]
+
+        cluster_mask_rand_auger = get_cluster_mask(randoms_auger[0], randoms_auger[1], clusters)
+        randoms_auger = randoms_auger[cluster_mask_rand_auger]
+
+    plt.hist(events_a8['dec'], bins=50, alpha=0.5, density=True, label='UHECRs')
+    plt.hist(gxs['_DEJ2000'], bins=50, alpha=0.5, density=True, label='Galaxies')
+    plt.hist(randoms_gxs[1], bins=50, alpha=0.5, density=True, histtype='step', label='Random for Galaxies')
+    plt.hist(randoms_auger[1], bins=50, alpha=0.5, density=True, histtype='step', label='Random for UHECRs')
+    plt.legend()
+    plt.xlabel('Dec (degrees)')
+    plt.savefig(f'../plots/dec_hist_postmasks_cz{int(params['cz_min'])}-{int(params['cz_max'])}.png')
+    plt.close()
+    
     # Define quantiles
     quantiles = get_quantiles_K(params, gxs)
 
@@ -626,7 +637,7 @@ def main():
     # Calculations
     print('Calculating crosscorrelations')
     xi_true, xi_bs, varxi_bs, th, ra_rand_auger, dec_rand_auger, ra_rand_gxs, dec_rand_gxs = \
-        crosscorrelations(data, events_a8, params, treecorr_config, \
+        crosscorrelations(data, events_a8, randoms_gxs, randoms_auger, params, treecorr_config, \
                           clusters=clusters if params['cluster_mask'] else None)
 
     # Correlation plot
