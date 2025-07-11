@@ -76,7 +76,7 @@ def load_data(sample, dec_max, cz_min=1200, cz_max=None, gclass=None):
 
     return data
 
-def generate_RandomCatalogue(N, params, gxs_dec=None, seed=None, nmult=None):
+def generate_RandomCatalogue(N, params, dec=None, ra=None, seed=None, nmult=None):
     import numpy as np
     from scipy.optimize import curve_fit
 
@@ -90,7 +90,7 @@ def generate_RandomCatalogue(N, params, gxs_dec=None, seed=None, nmult=None):
     dec_max = params['dec_max']
     N_total = N * nmult
 
-    if gxs_dec is None:
+    if dec is None and ra in None:
         # Default to uniform sin(dec) distribution
         rand_ra = np.random.uniform(0, 360, N_total)
         rand_sindec = np.random.uniform(
@@ -99,38 +99,77 @@ def generate_RandomCatalogue(N, params, gxs_dec=None, seed=None, nmult=None):
         rand_dec = np.degrees(np.arcsin(rand_sindec))
         return rand_ra, rand_dec
 
-    # --- Fit a parabola to the declination histogram ---
-    hist, bin_edges = np.histogram(gxs_dec, bins=60, density=True)
-    bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+    if ra is None and dec is not None:
+        # --- Fit a parabola to the declination histogram ---
+        hist, bin_edges = np.histogram(dec, bins=60, density=True)
+        bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
 
-    def parabola(x, a, b, c):
-        return a * x**2 + b * x + c
+        def parabola(x, a, b, c):
+            return a * x**2 + b * x + c
 
-    popt, _ = curve_fit(parabola, bin_centers, hist)
+        popt, _ = curve_fit(parabola, bin_centers, hist)
 
-    # Normalize parabola to form a proper PDF
-    x_vals = np.linspace(dec_min, dec_max, 1000)
-    pdf_vals = parabola(x_vals, *popt)
-    pdf_vals = np.clip(pdf_vals, 0, None)  # avoid negatives
-    norm = np.trapz(pdf_vals, x_vals)
-    pdf_vals /= norm
+        # Normalize parabola to form a proper PDF
+        x_vals = np.linspace(dec_min, dec_max, 1000)
+        pdf_vals = parabola(x_vals, *popt)
+        pdf_vals = np.clip(pdf_vals, 0, None)  # avoid negatives
+        norm = np.trapz(pdf_vals, x_vals)
+        pdf_vals /= norm
 
-    # Compute CDF
-    cdf_vals = np.cumsum(pdf_vals)
-    cdf_vals /= cdf_vals[-1]
+        # Compute CDF
+        cdf_vals = np.cumsum(pdf_vals)
+        cdf_vals /= cdf_vals[-1]
+        
+        # Inverse CDF interpolation
+        from scipy.interpolate import interp1d
+        inv_cdf = interp1d(cdf_vals, x_vals, bounds_error=False, fill_value=(x_vals[0], x_vals[-1]))
+
+        # Sample declination using inverse CDF
+        u = np.random.uniform(0, 1, N_total)
+        rand_dec = inv_cdf(u)
+
+        # Sample RA uniformly
+        rand_ra = np.random.uniform(0, 360, N_total)
+
+        return rand_ra, rand_dec
     
-    # Inverse CDF interpolation
-    from scipy.interpolate import interp1d
-    inv_cdf = interp1d(cdf_vals, x_vals, bounds_error=False, fill_value=(x_vals[0], x_vals[-1]))
+    if ra is not None and dec is not None:
 
-    # Sample declination using inverse CDF
-    u = np.random.uniform(0, 1, N_total)
-    rand_dec = inv_cdf(u)
+        # 2D KDE
+        from scipy.stats import gaussian_kde   
+        
+        # Fit KDE in 2D
+        values = np.vstack([ra, dec])
+        kde = gaussian_kde(values, bw_method=0.3)  # tweak smoothing here
 
-    # Sample RA uniformly
-    rand_ra = np.random.uniform(0, 360, N_total)
+        # Sampling via rejection
+        ra_min, ra_max = 0, 360
+        dec_min, dec_max = params['dec_min'], params['dec_max']
 
-    return rand_ra, rand_dec
+        ra_rand = []
+        dec_rand = []
+
+        n_trials = 0
+        while len(ra_rand) < N_total:
+            # Batch trial
+            ra_try = np.random.uniform(ra_min, ra_max, 1000)
+            dec_try = np.random.uniform(dec_min, dec_max, 1000)
+            samples = np.vstack([ra_try, dec_try])
+            probs = kde(samples)
+            probs /= np.max(probs)  # normalize for rejection sampling
+
+            keep = np.random.rand(1000) < probs
+            ra_rand.extend(ra_try[keep])
+            dec_rand.extend(dec_try[keep])
+
+            n_trials += 1
+            if n_trials > 1000:
+                raise RuntimeError("KDE rejection sampling too inefficient.")
+
+        ra_rand = np.array(ra_rand[:N_total])
+        dec_rand = np.array(dec_rand[:N_total])
+
+        return ra_rand, dec_rand
 
 
 def generate_CR_like_randoms(N, nmult, cr_events):
@@ -171,6 +210,8 @@ def get_milkyway_mask(ra, dec):
 def get_deflection_mask(defl_file, ra_deg, dec_deg, deflection):
     import numpy as np
     import healpy as hp
+    import os
+    print("Current working directory:", os.getcwd())
 
 
     # === Load/prepare deflection map ===
@@ -368,8 +409,8 @@ def get_filecorrname(params):
     if params['gclass'] == 2: filecorrname+=f'class{params["gclass"]}'
     elif params['gclass'] == 3: filecorrname+=f'class{params["gclass"]}'
     # Add deflection
-    if params['deflection'] == 'low': filecorrname+=f'_def{params["def"]}{int(params["def_thresh"])}'
-    elif params['deflection'] == 'high': filecorrname+=f'_def{params["def"]}{int(params["def_thresh"])}'
+    if params['deflection'] == 'low': filecorrname+=f'_def{params["deflection"]}{int(params["def_thresh"])}'
+    elif params['deflection'] == 'high': filecorrname+=f'_def{params["deflection"]}{int(params["def_thresh"])}'
     # Add czmax
     if params['cz_max'] is not None:
         filecorrname += f'_cz{int(params["cz_min"])}-{int(params["cz_max"])}'
@@ -499,6 +540,31 @@ def get_quantiles_K(params, gxs):
 
     return quantiles
 
+def plot_DECRA_hist(plotname, events_a8, gxs, randoms_gxs, randoms_auger):
+    import matplotlib.pyplot as plt
+    fig, axs = plt.subplots(1, 2, figsize=(12, 5))
+
+    # Left panel: Declination
+    axs[0].hist(events_a8['dec'], bins=50, alpha=0.5, density=True, label='UHECRs')
+    axs[0].hist(gxs['_DEJ2000'], bins=50, alpha=0.5, density=True, label='Galaxies')
+    axs[0].hist(randoms_gxs[1], bins=50, alpha=0.5, density=True, histtype='step', label='Random for Galaxies')
+    axs[0].hist(randoms_auger[1], bins=50, alpha=0.5, density=True, histtype='step', label='Random for UHECRs')
+    axs[0].set_xlabel('Dec (degrees)')
+    axs[0].legend()
+
+    # Right panel: Right Ascension
+    axs[1].hist(events_a8['RA'], bins=50, alpha=0.5, density=True, label='UHECRs')
+    axs[1].hist(gxs['_RAJ2000'], bins=50, alpha=0.5, density=True, label='Galaxies')
+    axs[1].hist(randoms_gxs[0], bins=50, alpha=0.5, density=True, histtype='step', label='Random for Galaxies')
+    axs[1].hist(randoms_auger[0], bins=50, alpha=0.5, density=True, histtype='step', label='Random for UHECRs')
+    axs[1].set_xlabel('RA (degrees)')
+
+    # Global settings
+    fig.suptitle('Angular Distributions: Dec and RA')
+    plt.tight_layout()
+    plt.savefig(plotname, dpi=300)
+    plt.close()
+
 def main():
 
     import numpy as np
@@ -542,8 +608,8 @@ def main():
 
     # Generate Random Catalogues
     print('Generating random catalogues')
-    randoms_gxs = generate_RandomCatalogue(len(gxs), params, gxs_dec=gxs['_DEJ2000']) 
-    randoms_auger = generate_RandomCatalogue(len(events_a8), params, nmult = 10, gxs_dec=events_a8['dec'])  # Generate randoms for Auger events
+    randoms_gxs = generate_RandomCatalogue(len(gxs), params, dec=gxs['_DEJ2000'], ra=gxs['_RAJ2000'])  # Generate randoms for galaxy sample
+    randoms_auger = generate_RandomCatalogue(len(events_a8), params, nmult = 10, dec=events_a8['dec'], ra=events_a8['RA'])  # Generate randoms for Auger events
     #randoms_auger = generate_CR_like_randoms(len(events_a8), 20, events_a8)
     randoms_auger = np.array(randoms_auger)  # Ensure it's a 2D array
     randoms_gxs = np.array(randoms_gxs)  # Ensure it's a 2D array
@@ -551,15 +617,9 @@ def main():
     print('Random galaxies:', len(randoms_gxs[0]))
     print('Random Auger:', len(randoms_auger[0]))
 
-    # Plot Declinations
-    plt.hist(events_a8['dec'], bins=50, alpha=0.5, density=True, label='UHECRs')
-    plt.hist(gxs['_DEJ2000'], bins=50, alpha=0.5, density=True, label='Galaxies')
-    plt.hist(randoms_gxs[1], bins=50, alpha=0.5, density=True, histtype='step', label='Random for Galaxies')
-    plt.hist(randoms_auger[1], bins=50, alpha=0.5, density=True, histtype='step', label='Random for UHECRs')
-    plt.legend()
-    plt.xlabel('Dec (degrees)')
-    plt.savefig(f'../plots/dec_hist_premasks_cz{int(params['cz_min'])}-{int(params['cz_max'])}.png')
-    plt.close()
+    # Plot RA and DEC
+    plotname = f'../plots/dec_ra_hist_premasks_cz{int(params["cz_min"])}-{int(params["cz_max"])}.png'
+    plot_DECRA_hist(plotname, events_a8, gxs, randoms_gxs, randoms_auger)
 
     # Apply masks
     print('Applying masks')
@@ -589,10 +649,10 @@ def main():
         events_a8 = events_a8[deflection_mask_eve]
 
         deflection_mask_rand_gxs = get_deflection_mask(params['deflection_file'], randoms_gxs[0], randoms_gxs[1], params['deflection'])
-        randoms_gxs = randoms_gxs[deflection_mask_rand_gxs]
+        randoms_gxs = randoms_gxs[0][deflection_mask_rand_gxs], randoms_gxs[1][deflection_mask_rand_gxs]
 
         deflection_mask_rand_auger = get_deflection_mask(params['deflection_file'], randoms_auger[0], randoms_auger[1], params['deflection'])
-        randoms_auger = randoms_auger[deflection_mask_rand_auger]
+        randoms_auger = randoms_auger[0][deflection_mask_rand_auger], randoms_auger[1][deflection_mask_rand_auger]
 
 
     # If cluster mask is specified, apply it
@@ -611,15 +671,10 @@ def main():
         cluster_mask_rand_auger = get_cluster_mask(randoms_auger[0], randoms_auger[1], clusters)
         randoms_auger = randoms_auger[cluster_mask_rand_auger]
 
-    plt.hist(events_a8['dec'], bins=50, alpha=0.5, density=True, label='UHECRs')
-    plt.hist(gxs['_DEJ2000'], bins=50, alpha=0.5, density=True, label='Galaxies')
-    plt.hist(randoms_gxs[1], bins=50, alpha=0.5, density=True, histtype='step', label='Random for Galaxies')
-    plt.hist(randoms_auger[1], bins=50, alpha=0.5, density=True, histtype='step', label='Random for UHECRs')
-    plt.legend()
-    plt.xlabel('Dec (degrees)')
-    plt.savefig(f'../plots/dec_hist_postmasks_cz{int(params['cz_min'])}-{int(params['cz_max'])}.png')
-    plt.close()
-    
+    # Plot Histograms RA and DEC
+    plotname = f'../plots/dec_ra_hist_postmasks_cz{int(params["cz_min"])}-{int(params["cz_max"])}.png'
+    plot_DECRA_hist(plotname, events_a8, gxs, randoms_gxs, randoms_auger)
+
     # Define quantiles
     quantiles = get_quantiles_K(params, gxs)
 
