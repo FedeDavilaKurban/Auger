@@ -90,7 +90,7 @@ def generate_RandomCatalogue(N, params, dec=None, ra=None, seed=None, nmult=None
     dec_max = params['dec_max']
     N_total = N * nmult
 
-    if dec is None and ra in None:
+    if dec is None and ra is None:
         # Default to uniform sin(dec) distribution
         rand_ra = np.random.uniform(0, 360, N_total)
         rand_sindec = np.random.uniform(
@@ -101,7 +101,7 @@ def generate_RandomCatalogue(N, params, dec=None, ra=None, seed=None, nmult=None
 
     if ra is None and dec is not None:
         # --- Fit a parabola to the declination histogram ---
-        hist, bin_edges = np.histogram(dec, bins=60, density=True)
+        hist, bin_edges = np.histogram(dec, bins=20, density=True)
         bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
 
         def parabola(x, a, b, c):
@@ -446,7 +446,7 @@ def get_xibs(data,nbootstrap,nbins,rcat,rcat_auger,ecat,config,seed=None):
         dr.process(gcat,rcat_auger)
         #rr.process(gcat,rcat_auger) #Esto emularía el estimador DD/DR-1
 
-        xi_bs[n], varxi_bs[n] = dd.calculateXi(rr=rr,dr=dr,rd=rd)
+        xi_bs[n], varxi_bs[n] = dd.calculateXi(rr=rr)#,dr=dr,rd=rd)
 
     # Calculate the true correlation function
     gcat = treecorr.Catalog(ra=data['_RAJ2000'], dec=data['_DEJ2000'],\
@@ -597,6 +597,8 @@ def main():
     # Read UHECR data
     events_a8 = ascii.read('../data/Auger/events_a8_lb.dat')
     events_a8 = events_a8[events_a8['dec'] < params['dec_max']] # Cut declination
+    #events_a8 = events_a8[(events_a8['azimuth']<60)&(events_a8['azimuth']>-60)] # Cut azimuth
+    events_a8 = events_a8[events_a8['azimuth']<0]
     print('Auger events:', len(events_a8))
 
     # Read galaxy data
@@ -608,8 +610,8 @@ def main():
 
     # Generate Random Catalogues
     print('Generating random catalogues')
-    randoms_gxs = generate_RandomCatalogue(len(gxs), params, dec=gxs['_DEJ2000'], ra=gxs['_RAJ2000'])  # Generate randoms for galaxy sample
-    randoms_auger = generate_RandomCatalogue(len(events_a8), params, nmult = 10, dec=events_a8['dec'], ra=events_a8['RA'])  # Generate randoms for Auger events
+    randoms_gxs = generate_RandomCatalogue(len(gxs), params)#, dec=gxs['_DEJ2000'])#, ra=gxs['_RAJ2000'])  # Generate randoms for galaxy sample
+    randoms_auger = generate_RandomCatalogue(len(events_a8), params, nmult = 100)#, dec=events_a8['dec'])#, ra=events_a8['RA'])  # Generate randoms for Auger events
     #randoms_auger = generate_CR_like_randoms(len(events_a8), 20, events_a8)
     randoms_auger = np.array(randoms_auger)  # Ensure it's a 2D array
     randoms_gxs = np.array(randoms_gxs)  # Ensure it's a 2D array
