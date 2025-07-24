@@ -8,10 +8,41 @@ def get_milkyway_mask(ra, dec):
     mask = np.where([abs(ran.galactic.b)>5.*(u.degree)])[1]
     return mask
 
+# def get_deflection_mask(defl_file, ra_deg, dec_deg, deflection):
+#     import numpy as np
+#     import healpy as hp
+#     import os
+
+#     # === Load/prepare deflection map ===
+#     data = np.loadtxt(defl_file, delimiter=',', skiprows=1)
+#     pixel_ids = data[:, 0].astype(int)
+#     deflection_data = data[:, 3]
+#     npix = int(np.max(pixel_ids)) + 1
+#     nside = hp.npix2nside(npix)
+#     nside = 64
+#     deflection_map = np.full(npix, hp.UNSEEN)
+#     deflection_map[pixel_ids] = deflection_data
+
+#     # === Create binary masks ===
+#     valid = deflection_map != hp.UNSEEN
+#     threshold = np.median(deflection_map[valid])
+#     if deflection=='high':
+#         deflection_mask = np.zeros_like(deflection_map, dtype=bool)
+#         deflection_mask[valid] = deflection_map[valid] > threshold
+#     elif deflection=='low':
+#         deflection_mask = np.zeros_like(deflection_map, dtype=bool)
+#         deflection_mask[valid] = deflection_map[valid] <= threshold
+
+#     theta = np.radians(90 - dec_deg)
+#     phi = np.radians(ra_deg)
+#     pix = hp.ang2pix(nside, theta, phi)
+#     return deflection_mask[pix]
+
+
+# Includes possibility of deflection as a tuple of quantiles
 def get_deflection_mask(defl_file, ra_deg, dec_deg, deflection):
     import numpy as np
     import healpy as hp
-    import os
 
     # === Load/prepare deflection map ===
     data = np.loadtxt(defl_file, delimiter=',', skiprows=1)
@@ -19,24 +50,39 @@ def get_deflection_mask(defl_file, ra_deg, dec_deg, deflection):
     deflection_data = data[:, 3]
     npix = int(np.max(pixel_ids)) + 1
     nside = hp.npix2nside(npix)
-    nside = 64
+    nside = 64  # override to ensure consistent nside
     deflection_map = np.full(npix, hp.UNSEEN)
     deflection_map[pixel_ids] = deflection_data
 
-    # === Create binary masks ===
+    # === Define valid region ===
     valid = deflection_map != hp.UNSEEN
-    threshold = np.median(deflection_map[valid])
-    if deflection=='high':
-        deflection_mask = np.zeros_like(deflection_map, dtype=bool)
-        deflection_mask[valid] = deflection_map[valid] > threshold
-    elif deflection=='low':
-        deflection_mask = np.zeros_like(deflection_map, dtype=bool)
-        deflection_mask[valid] = deflection_map[valid] <= threshold
+    valid_defl = deflection_map[valid]
 
+    # === Build mask based on mode ===
+    deflection_mask = np.zeros_like(deflection_map, dtype=bool)
+
+    if deflection == 'high':
+        threshold = np.median(valid_defl)
+        deflection_mask[valid] = deflection_map[valid] > threshold
+    elif deflection == 'low':
+        threshold = np.median(valid_defl)
+        deflection_mask[valid] = deflection_map[valid] <= threshold
+    elif isinstance(deflection, tuple) and len(deflection) == 2:
+        # Mask values within the specified quantile range
+        qmin, qmax = deflection
+        lo = np.quantile(valid_defl, qmin)
+        hi = np.quantile(valid_defl, qmax)
+        deflection_mask[valid] = (deflection_map[valid] >= lo) & (deflection_map[valid] <= hi)
+    else:
+        raise ValueError("deflection must be 'high', 'low', or a (qmin, qmax) tuple")
+
+    # === Query input coordinates ===
     theta = np.radians(90 - dec_deg)
     phi = np.radians(ra_deg)
     pix = hp.ang2pix(nside, theta, phi)
+    
     return deflection_mask[pix]
+
 
 def get_cluster_mask(cat_ra, cat_dec, clusters, factor=4.0):
     """
