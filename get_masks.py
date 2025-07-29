@@ -40,14 +40,17 @@ def get_milkyway_mask(ra, dec):
 
 
 # Includes possibility of deflection as a tuple of quantiles
-def get_deflection_mask(defl_file, ra_deg, dec_deg, deflection):
+def get_deflection_mask(defl_file, ra_deg, dec_deg, deflection, defl_column='deflection'):
     import numpy as np
     import healpy as hp
+    from astropy.io import ascii
 
     # === Load/prepare deflection map ===
-    data = np.loadtxt(defl_file, delimiter=',', skiprows=1)
-    pixel_ids = data[:, 0].astype(int)
-    deflection_data = data[:, 3]
+    data = ascii.read(defl_file)
+    if defl_column not in data.colnames:
+        raise ValueError(f"Column '{defl_column}' not found in deflection file.")
+    pixel_ids = data['pixid']
+    deflection_data = data[defl_column]
     npix = int(np.max(pixel_ids)) + 1
     nside = hp.npix2nside(npix)
     nside = 64  # override to ensure consistent nside
