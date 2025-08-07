@@ -1,7 +1,7 @@
 def generate_RandomCatalogue(N, params, dec=None, ra=None, seed=None, nmult=None):
     """
     Generate random RA and Dec coordinates based on input parameters.
-    If no RA nor Dec iareprovided, RA/Dec are uniformly distributed.
+    If no RA nor Dec are provided, RA/Dec are uniformly distributed.
     If only Dec is provided, random declination is sampled from a fitted parabola.
     If both RA and Dec are provided, a 2D KDE is used to sample coordinates
 
