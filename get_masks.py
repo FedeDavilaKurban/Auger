@@ -86,6 +86,56 @@ def get_deflection_mask(defl_file, ra_deg, dec_deg, deflection, defl_column='def
     
     return deflection_mask[pix]
 
+def get_deflection_smoothing_mask(defl_file, ra_deg, dec_deg, deflection, defl_column='deflection', fwhm_deg=10.0):
+    import numpy as np
+    import healpy as hp
+    from astropy.io import ascii
+
+    # === Load/prepare deflection map ===
+    data = ascii.read(defl_file)
+    if defl_column not in data.colnames:
+        raise ValueError(f"Column '{defl_column}' not found in deflection file.")
+    pixel_ids = data['pixid']
+    deflection_data = data[defl_column]
+    npix = int(np.max(pixel_ids)) + 1
+    nside = hp.npix2nside(npix)
+    nside = 64  # override to ensure consistent nside
+    deflection_map = np.full(npix, hp.UNSEEN)
+    deflection_map[pixel_ids] = deflection_data
+
+    # === Smooth the map ===
+    if fwhm_deg and fwhm_deg > 0:
+        fwhm_rad = np.radians(fwhm_deg)
+        deflection_map = hp.smoothing(deflection_map, fwhm=fwhm_rad, verbose=False)
+
+    # === Define valid region ===
+    valid = deflection_map != hp.UNSEEN
+    valid_defl = deflection_map[valid]
+
+    # === Build mask based on mode ===
+    deflection_mask = np.zeros_like(deflection_map, dtype=bool)
+
+    if deflection == 'high':
+        threshold = np.median(valid_defl)
+        deflection_mask[valid] = deflection_map[valid] > threshold
+    elif deflection == 'low':
+        threshold = np.median(valid_defl)
+        deflection_mask[valid] = deflection_map[valid] <= threshold
+    elif isinstance(deflection, tuple) and len(deflection) == 2:
+        # Mask values within the specified quantile range
+        qmin, qmax = deflection
+        lo = np.quantile(valid_defl, qmin)
+        hi = np.quantile(valid_defl, qmax)
+        deflection_mask[valid] = (deflection_map[valid] >= lo) & (deflection_map[valid] <= hi)
+    else:
+        raise ValueError("deflection must be 'high', 'low', or a (qmin, qmax) tuple")
+
+    # === Query input coordinates ===
+    theta = np.radians(90 - dec_deg)
+    phi = np.radians(ra_deg)
+    pix = hp.ang2pix(nside, theta, phi)
+
+    return deflection_mask[pix]
 
 def get_cluster_mask(cat_ra, cat_dec, clusters, factor=4.0):
     """
